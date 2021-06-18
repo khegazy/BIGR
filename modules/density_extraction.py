@@ -11,6 +11,11 @@ from multiprocessing import Pool
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
+sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
+from diffraction_simulation import diffraction_calculation
+sys.path.append("/cds/home/k/khegazy/baseTools/modules")
+from fitting import fit_legendres_images
+
 #import jax as jax
 #import jax.numpy as jnp
 
@@ -54,6 +59,7 @@ def calc_all_dists(R):
 class density_extraction:
 
   def __init__(self, data_params,
+      get_scattering_amplitudes,
       log_prior=None,
       theta_to_cartesian=None,
       ensemble_generator=None,
@@ -70,8 +76,13 @@ class density_extraction:
       "C" : ["carbon", 12.0],
       "O" : ["oxygen", 16.0],
       "N" : ["nitrogen", 14.0],
+      "F" : ["flourine", 19.0],
+      "Br": ["bromine", 78.0],
       "I" : ["iodine", 127.0]
     }
+
+    if "output_dir" not in self.data_params:
+      self.data_params["output_dir"] = "output"
 
     self.I = np.ones((1,1))
     self.do_rebin = False
@@ -97,26 +108,18 @@ class density_extraction:
 
     # Skip if results only
     if results_only:
-      fileName = os.path.join("output", self.get_fileName() + ".h5")
+      fileName = os.path.join(self.data_params["output_dir"], self.get_fileName() + ".h5")
       self.load_emcee_backend(fileName)
 
       return
 
-    # De Broglie wavelength angs
-    self.C_AU = 1./0.0072973525664
-    self.eV_to_au = 0.0367493
-    self.angs_to_au = 1e-10/5.291772108e-11 
-    self.db_lambda = 2*np.pi*self.C_AU/\
-        np.sqrt((self.data_params["elEnergy"]*self.eV_to_au + self.C_AU**2)**2\
-        - (self.C_AU)**4) #au
-    self.db_lambda /= self.angs_to_au  # angs
-    self.k0 = 2*np.pi/self.db_lambda
-    #print("debrog", self.db_lambda)
-
     # Make output folders
-    if not os.path.exists(os.path.join("output", self.get_fileName(folder_only=True))):
+    print("Making output folder")
+    if not os.path.exists(os.path.join(
+        self.data_params["output_dir"], self.get_fileName(folder_only=True))):
       try:
-        os.makedirs(os.path.join("output", self.get_fileName(folder_only=True)))
+        os.makedirs(os.path.join(
+            self.data_params["output_dir"], self.get_fileName(folder_only=True)))
       except OSError as e:
         if e.errno != errno.EEXIST:
           raise
@@ -127,24 +130,30 @@ class density_extraction:
         if e.errno != errno.EEXIST:
           raise
 
+    print("posterior type")
     # Setup posterior type
     self.log_likelihood = self.log_likelihood_optimal
+    self.C_log_likelihood = self.gaussian_log_likelihood
     if "posterior" in self.data_params:
       if "ensity" in self.data_params["posterior"]:
         self.log_likelihood = self.log_likelihood_density
     else:
       self.data_params["posterior"] = "optimal"
 
+    print("getting init geo")
     # Get initial geometry
     self.get_molecule_init_geo()
     
+    print("Setting up mom inert")
     # Setup moment of inertia tensor calculation
     self.setup_I_tensor_calc()
 
+    print("getting atom pos")
     # Rotate initial geometry into the MF
     self.atom_positions = self.rotate_to_principalI(self.atom_positions)
 
     # Get data
+    print("getting data")
     self.data_or_sim = True
     if "simulate_data" in self.data_params:
       if self.data_params["simulate_data"]:
@@ -152,9 +161,10 @@ class density_extraction:
     self.get_data()
 
     # Get scattering amplitudes
-    if self.data_params["experiment"] == "UED":
-      self.get_scattering_amplitudes()
-      self.evaluate_scattering_amplitudes()
+    print("Getting Scat Amps")
+    self.scat_amps_interp = get_scattering_amplitudes(
+        self.data_params, self.atom_types, self.atom_info)
+    self.evaluate_scattering_amplitudes()
     
     dist_inds1 = []
     dist_inds2 = []
@@ -172,14 +182,18 @@ class density_extraction:
 
 
     # Simulate data if needed
+    print("simulate data")
     if not self.data_or_sim:
       self.simulate_data(ensemble_generator)
 
+    print("pruning data")
     # Prune data in time and dom
     self.prune_data()
 
+    print("making weiner weight")
     # Calculate Wiener mask
     self.make_wiener_weight()
+
     
     self.eval_data_coeffs = self.data_coeffs
     self.eval_data_coeffs_var = self.data_coeffs_var
@@ -213,14 +227,50 @@ class density_extraction:
     """
 
     # Subtract the mean from the data
-    # TODO Fix mean subtraction or whatever it should be
+    # TODO Fix mean subtraction or whatever it should be | Same for C_dist
     #self.eval_data_coeffs -= np.expand_dims(np.mean(
     #    self.eval_data_coeffs[:,:], axis=-1), -1)
+
+
+    """
+    # Apply customized likelihood using data
+    if "fit_likelihood" in self.data_params:
+      if self.data_params["fit_likelihood"]:
+        dim_shape = extraction.C_distributions.shape
+        hists, bins = [], []
+        Nbins=75
+        for data in np.reshape(extraction.C_distributions,
+            (dim_shape[0], -1)).transpose():
+
+            h,b = np.histogram(data, bins=Nbins)
+            hists.append(copy(h))
+            bins.append((b[1:]+b[:-1])/2)
+        hists = np.array(hists)
+        bins = np.array(bins)
+        
+        pols = np.arange(10)
+        self.fit_liklihood_offset = bins[:np.argmax(hists[-1])]
+        X = [np.ones_like(np.expand_dims(bins))]
+        for p in pols:
+          X.append(X[-1]*np.expand_dims(bins - np.expand_dims(bins[:,off_dims],-1), 1))
+        X = np.concatenate(X, 1)
+        print(X.shape, np.linalg.inv(np.einsum('ikj,ilj->ikl', X, X)).shape)
+        print(np.einsum('ij,ikj->ik', hists, X).shape)
+        histss = copy(hists)
+        histss[hists==0] = 1
+        print(np.sum(np.isnan(np.log(histss))))
+        coeffs = np.einsum('ikj,ij->ik',
+            np.linalg.inv(np.einsum('ikj,ilj->ikl', X, X)),
+              np.einsum('ij,ikj->ik', np.log(histss), X))
+
+        def fit_log_likelihood(calc_coeffs):
+    """
 
     # Parameters for calculating coefficients
     self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
     self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
     self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
+
 
 
   def theta_to_cartesian(self, theta):
@@ -311,7 +361,7 @@ class density_extraction:
     else:
       self.data_LMK = self.data_params["fit_bases"]
       self.input_data_coeffs_var = None
-      self.dom = self.data_params["dom"]#np.linspace(*self.data_params["dom"])
+      self.dom = self.data_params["dom"]
       print("INP DOM", self.dom.shape)
 
 
@@ -348,15 +398,45 @@ class density_extraction:
     self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
     self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
     self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
+    self.C_distributions = []
     
     if ensemble_generator is not None:
-      ensemble, weights = ensemble_generator(molecule)
-      calc_coeffs = self.calculate_coeffs_ensemble(ensemble, w=weights)
-      self.input_data_coeffs = np.sum(calc_coeffs*np.expand_dims(weights, -1), 0)
-      self.input_data_coeffs_var = np.sum((calc_coeffs - self.input_data_coeffs)**2\
-            *np.expand_dims(weights, -1), 0)
+      ensemble = ensemble_generator(molecule)
+      if len(ensemble) == 2:
+        ensemble, weights = ensemble
+      else:
+        weights = np.ones((ensemble.shape[0], 1))
+
+      print("SHAAAAPES", ensemble.shape, weights.shape)
+      self.input_data_coeffs = calc_coeffs = np.zeros(
+          (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
+      self.input_data_coeffs_var = None
+
+      ind, ind_step = 0, 10000
+      while ind < ensemble.shape[0]:
+        ind_end = np.min([ensemble.shape[0], ind + ind_step])
+        #calc_coeffs = self.calculate_coeffs_ensemble(ensemble)
+        calc_coeffs = self.calculate_coeffs_ensemble(ensemble[ind:ind_end])
+        self.input_data_coeffs = self.input_data_coeffs\
+            + np.sum(calc_coeffs*np.expand_dims(weights[ind:ind_end], -1), 0)
+        self.C_distributions.append(calc_coeffs)
+        ind = ind_end
+      """
+      ind, ind_step = 0, 10000
+      while ind < ensemble.shape[0]:
+        ind_end = np.min([ensemble.shape[0], ind + ind_step])
+        self.input_data_coeffs_var = self.input_data_coeffs_var\
+            + np.sum(
+              (self.calculate_coeffs_ensemble(ensemble[ind:ind_end])\
+                - self.input_data_coeffs)**2\
+              *np.expand_dims(weights[ind:ind_end], -1), 0)
+        ind = ind_end
+      """
       #print("DATA", self.input_data_coeffs[-2,2], self.input_data_coeffs_var[-2,2])
       self.data_params["isMS"] = True
+      #self.C_distributions = np.transpose(
+      #    np.concatenate(self.C_distributions, 1),
+      #    (1,2,0))
       test = self.calculate_coeffs(molecule)
 
       """
@@ -377,72 +457,235 @@ class density_extraction:
     # Simulate Error
     self.experimental_var = None
     if "simulate_error" in self.data_params:
-      error_type, variance_scale = self.data_params["simulate_error"]
       
-      # Generate errors for the total signal
-      if "onstant" in error_type:
-        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1])
+      error_type, error_options = self.data_params["simulate_error"]
+      
+      ###  Generate errors for the total signal  ###
+      if "StoN" in error_type:
+        s2n_scale, s2n_range = error_options
+
+        # Get ADMs
+        if self.ADMs is None:
+          if "ADM_kwargs" in self.data_params:
+            self.ADMs = self.get_ADMs(
+                self.data_LMK, kwargs=self.data_params["ADM_kwargs"], normalize=False)
+          else:
+            self.ADMs = self.get_ADMs(self.data_LMK)
+
+        # Calculate q map
+        if self.data_params["dom"][0] == 0:
+          N = self.data_params["dom"].shape[0]
+          N_hole = 0
+          q_wHole = self.data_params["dom"]
+        else:
+          dq = self.data_params["dom"][1] - self.data_params["dom"][0]
+          N_hole = np.int(np.round(self.data_params["dom"][0]/dq))
+          N_hole += (N_hole+1)%2
+          print("ADDING HOLE", dq, self.data_params["dom"][0], N_hole)
+          dqq = self.data_params["dom"][0]/N_hole
+          q_wHole = np.concatenate(
+              [np.arange(N_hole)*dqq, self.data_params["dom"]], axis=0)
+
+        qx, qy = np.meshgrid(
+            np.concatenate([np.flip(q_wHole[1:]), q_wHole]),
+            np.concatenate([np.flip(q_wHole[1:]), q_wHole]))
+        q_map = np.sqrt(qx**2 + qy**2)
+
+        # Account for K/-K double counting for bases
+        azim_scale = []
+        for lmk in self.data_params["fit_bases"]:
+          if lmk[0] == 0:
+            azim_scale.append(1)
+          else:
+            if [lmk[0], lmk[1], -1*lmk[2]] in self.data_params["fit_bases"]:
+              azim_scale.append(1)
+            else:
+              azim_scale.append(2)
+        azim_scale = np.array(azim_scale)
+
+        if 0 not in self.data_LMK[:,0]:
+          sim_LMK = np.concatenate([np.array([[0,0,0]]), self.data_LMK])
+          azim_scale = np.concatenate([np.ones(1), azim_scale])
+          sim_LMK_weights = np.concatenate(
+              [np.ones((1, self.ADMs.shape[1]))/(8*np.pi**2),
+              self.ADMs]).transpose()*azim_scale
+        else:
+          sim_LMK = self.data_LMK
+          sim_LMK_weights = self.ADMs.transpose()*azim_scale
+
+        # Simulate Diffraction
+        if len(sim_LMK_weights.shape) == 2 and sim_LMK_weights.shape[0] > 10:
+          mol_diffraction = []
+          for i in range(np.int(np.ceil(sim_LMK_weights.shape[0]/10.))):
+
+            atm_diffraction, mol = diffraction_calculation(
+                sim_LMK, sim_LMK_weights[i*10:(i+1)*10],
+                np.array([[molecule]]), [self.atom_types], self.scat_amps_interp,
+                q_map, self.data_params["detector_dist"],
+                freq=self.data_params["wavelength"])
+
+            mol_diffraction.append(mol[0])
+          mol_diffraction = np.concatenate(mol_diffraction, axis=0)
+        else:
+          atm_diffraction, mol_diffraction = diffraction_calculation(
+              sim_LMK, sim_LMK_weights,
+              np.array([[molecule]]), [self.atom_types], self.scat_amps_interp,
+              q_map, self.data_params["detector_dist"],
+              freq=self.data_params["wavelength"])
+          mol_diffraction = mol_diffraction[0]
+
+        total_diffraction = (atm_diffraction + mol_diffraction)\
+            /atm_diffraction
+        s2n_var = total_diffraction/atm_diffraction
+        """
+        for d in range(total_diffraction.shape[0]):
+          pme = mol_diffraction[d]/atm_diffraction
+          rng = np.amax([np.amax(pme), np.abs(np.amin(pme))])
+          plt.pcolormesh(qx,qy, pme, vmax=rng, vmin=-1*rng, cmap='seismic')
+          plt.colorbar()
+          plt.savefig("testdiff{}.png".format(d))
+          plt.close()
+        """
+
+        print("zero", np.where(atm_diffraction == 0), np.where(np.sqrt(s2n_var) == 0))
+        # Fit lab frame Ylm and propogate error
+        N = q_wHole.shape[0]
+        rx, ry = np.meshgrid(np.arange(N*2+5), np.arange(N*2+5))
+        rad = np.round(np.sqrt((rx-rx.shape[1]//2)**2 + (ry-ry.shape[0]//2)**2))
+        rad_inds = {}
+        for rr in np.arange(N):
+          if rr >= N_hole:
+            rad_inds[rr] = np.where(rad == rr)
+            rad_inds[rr] = (rad_inds[rr][0]-rx.shape[0]//2, rad_inds[rr][1]-rx.shape[0]//2)
+
+        img_fits, img_covs = fit_legendres_images(
+            mol_diffraction/atm_diffraction,
+            np.array([[atm_diffraction.shape[0]//2, atm_diffraction.shape[1]//2]]\
+                *s2n_var.shape[0]),
+            np.concatenate([np.array([0]), np.unique(self.data_LMK[:,0])]),
+            rad_inds, N, image_stds=np.sqrt(s2n_var),
+            chiSq_fit=True)
+            
+        print("fin shapes", img_fits.shape, img_covs.shape)
+        """
+        for i in range(4):
+          plt.pcolormesh(img_fits[:,4:,i])
+          plt.colorbar()
+          plt.savefig("testinfits{}.png".format(i))
+          plt.close()
+        """
+
+
+        s2n_range = [
+            np.argmin(np.abs(s2n_range[0]-self.data_params["dom"])),
+            np.argmin(np.abs(s2n_range[1]-self.data_params["dom"]))]
+        s2n = np.mean(np.abs(
+            img_fits[:,s2n_range[0]:s2n_range[1],0]\
+            /np.sqrt(img_covs[:,s2n_range[0]:s2n_range[1],0,0])))
+        inds = np.arange(img_covs.shape[-1])
+        s2n_var = img_covs[:,:,inds,inds]*(s2n/s2n_scale)**2
+        print("ASFASDF", s2n_var[:5])
+
+        fit_var = np.zeros_like(self.input_data_coeffs)
+        for il,l in enumerate(np.unique(self.data_LMK[:,0])):
+          linds = (self.data_LMK[:,0] == l)
+          print(self.data_LMK)
+          print("IN L",l, linds)
+          fit_ADMs = self.ADMs[linds,:]
+          fit_ADMs -= np.mean(fit_ADMs, -1, keepdims=True)
+          print("err shapes", self.ADMs.shape, fit_ADMs.shape, self.input_data_coeffs.shape)
+          print("matrix",  np.einsum('ai,ib,ci->bac', 
+            fit_ADMs, 1/s2n_var[:,:,il], fit_ADMs)[:5])
+          fit_var_ = np.linalg.inv(
+              np.einsum('ai,ib,ci->bac', 
+                fit_ADMs, 1/s2n_var[:,:,il], fit_ADMs))
+          ev_inds = np.arange(fit_var_.shape[-1])
+          fit_var[linds,:] = np.transpose(fit_var_[:,ev_inds,ev_inds])
+        s2n_var = fit_var
+
+        if not self.data_params["isMS"]:
+          s2n_var *= self.atm_scat**2
+
+        if self.experimental_var is None:
+          self.experimental_var = s2n_var
+        else:
+          self.experimental_var += s2n_var
+
+      elif "onstant_background" in error_type:
+        variance_scale = error_options
+        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=np.float)
         if self.data_params["isMS"]:
           self.experimental_var /= self.atm_scat**2
-        #self.input_data_coeffs_var = np.expand_dims(self.input_data_coeffs_var, -1)
+        
+        # Error scale derived from input signal
+        ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
+        if self.input_data_coeffs_var is None:
+          SN_ratio_lg2 = np.nanmean(
+              self.input_data_coeffs[ind2,self.dom_mask]**2\
+                /self.experimental_var[self.dom_mask])
+        else:
+          SN_ratio_lg2 = np.nanmean(
+              self.input_data_coeffs[ind2,self.dom_mask]**2\
+                /self.input_data_coeffs_var[ind2,self.dom_mask])
+        #print("SCALE", self.data_params["simulate_error_scale"], SN_ratio_lg2/self.data_params["simulate_error_scale"])
+
+        # Combine error scale with input scale factor
+        if variance_scale is None:
+          self.data_params["simulate_error"] = (error_type, 1.)
+          variance_scale = 1.
+        variance_scale *= SN_ratio_lg2
+
+        self.experimental_var *= variance_scale
+
+      elif "onstant_sigma" in error_type:
+        self.experimental_var =\
+            np.ones_like(self.input_data_coeffs)*error_options**2
+        if not self.data_params["isMS"]:
+          self.experimental_var *= self.atm_scat**2
       else:
         raise RuntimeError("ERROR: Cannot handle error type " + error_type)
 
 
-      # Error scale derived from input signal
-      ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
-      if self.input_data_coeffs_var is None:
-        SN_ratio_lg2 = np.nanmean(
-            self.input_data_coeffs[ind2,self.dom_mask]**2\
-              /self.experimental_var[ind2,self.dom_mask])
-      else:
-        SN_ratio_lg2 = np.nanmean(
-            self.input_data_coeffs[ind2,self.dom_mask]**2\
-              /self.input_data_coeffs_var[ind2,self.dom_mask])
-      #print("SCALE", self.data_params["simulate_error_scale"], SN_ratio_lg2/self.data_params["simulate_error_scale"])
 
-      # Combine error scale with input scale factor
-      if variance_scale is None:
-        self.data_params["simulate_error"] = (error_type, 1.)
-        variance_scale = 1.
-      variance_scale *= SN_ratio_lg2
-
-      self.experimental_var *= variance_scale
-
-      # Propogate error through fits to generate error for each LMK
-      if self.ADMs is None:
-        if "ADM_kwargs" in self.data_params:
-          self.ADMs = self.get_ADMs(
-              self.data_LMK, kwargs=self.data_params["ADM_kwargs"], normalize=False)
-        else:
-          self.ADMs = self.get_ADMs(self.data_LMK)
+      ###  Propogate error through fits to generate error for each LMK  ###
+      if "sigma" not in error_type and False:
+        if self.ADMs is None:
+          if "ADM_kwargs" in self.data_params:
+            self.ADMs = self.get_ADMs(
+                self.data_LMK, kwargs=self.data_params["ADM_kwargs"], normalize=False)
+          else:
+            self.ADMs = self.get_ADMs(self.data_LMK)
 
 
-      fit_var = np.zeros_like(self.input_data_coeffs)
-      for l in np.unique(self.data_LMK[:,0]):
-        linds = (self.data_LMK[:,0] == l)
-        fit_ADMs = self.ADMs[linds,:]
-        fit_ADMs -= np.mean(fit_ADMs, -1, keepdims=True)
-        print("SSSS", self.input_data_coeffs.shape, self.input_data_coeffs_var.shape, self.experimental_var.shape)
-        print("err shapes", self.ADMs.shape)
-        print(np.matmul(fit_ADMs, np.transpose(fit_ADMs)))
-        #print(np.linalg.inv(np.matmul(fit_ADMs, np.transpose(fit_ADMs))))
-        fit_var_ = np.linalg.inv(np.matmul(fit_ADMs, np.transpose(fit_ADMs)))
-        print(fit_var_)
-        fit_var_ = np.expand_dims(fit_var_, 0)*np.reshape(self.experimental_var, (-1, 1, 1))
-        ev_inds = np.arange(fit_var_.shape[-1])
-        fit_var[linds,:] = np.transpose(fit_var_[:,ev_inds,ev_inds])
-      self.experimental_var = fit_var
-      print(self.experimental_var.shape)
+        fit_var = np.zeros_like(self.input_data_coeffs)
+        for l in np.unique(self.data_LMK[:,0]):
+          linds = (self.data_LMK[:,0] == l)
+          print(self.data_LMK)
+          print(self.data_LMK[:,0])
+          print(self.ADMs.shape)
+          fit_ADMs = self.ADMs[linds,:]
+          fit_ADMs -= np.mean(fit_ADMs, -1, keepdims=True)
+          #print("SSSS", self.input_data_coeffs.shape, self.input_data_coeffs_var.shape, self.experimental_var.shape)
+          print("err shapes", self.ADMs.shape, fit_ADMs.shape, self.input_data_coeffs.shape)
+          print(np.matmul(fit_ADMs, np.transpose(fit_ADMs)))
+          #print(np.linalg.inv(np.matmul(fit_ADMs, np.transpose(fit_ADMs))))
+          fit_var_ = np.linalg.inv(np.matmul(fit_ADMs, np.transpose(fit_ADMs)))
+          print(fit_var_)
+          fit_var_ = np.expand_dims(fit_var_, 0)*np.reshape(self.experimental_var, (-1, 1, 1))
+          ev_inds = np.arange(fit_var_.shape[-1])
+          fit_var[linds,:] = np.transpose(fit_var_[:,ev_inds,ev_inds])
+        self.experimental_var = fit_var
 
 
-      if self.experimental_var is not None:
+      if self.input_data_coeffs_var is not None:
         self.input_data_coeffs_var += self.experimental_var
       else:
         self.input_data_coeffs_var = copy(self.experimental_var)
 
-    
-    
+      print("FIN SHAPES", self.input_data_coeffs_var.shape, self.input_data_coeffs.shape)
+
+      
+      
       ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
       SN_ratio_lg2 = np.nanmean(
           self.input_data_coeffs[ind2,self.dom_mask]**2\
@@ -464,7 +707,6 @@ class density_extraction:
     sys.exit(0)
     """
  
-
     if self.input_data_coeffs_var is None:
       raise RuntimeError("ERROR: input_data_coeffs_var is still None!!!")
 
@@ -482,7 +724,8 @@ class density_extraction:
     
     # Prune the list of legendre projections
     if "fit_bases" in self.data_params:
-      temp_LMK, temp_data_LMK, temp_data_var_LMK = [], [], []
+      temp_LMK, temp_data_LMK = [], []
+      temp_data_var_LMK, temp_C_distributions_LMK = [], []
       for lmk in self.data_params["fit_bases"]:
         ind = (self.data_LMK[:,0]==lmk[0])*(self.data_LMK[:,1]==lmk[1])\
             *(self.data_LMK[:,2]==lmk[2])
@@ -494,16 +737,22 @@ class density_extraction:
         temp_LMK.append(lmk)
         temp_data_LMK.append(self.input_data_coeffs[ind,:])
         temp_data_var_LMK.append(self.input_data_coeffs_var[ind,:])
+        #if self.C_distributions is not None:
+        #  temp_C_distributions_LMK.append(self.C_distributions[ind])
 
       self.data_LMK = np.array(temp_LMK)
       self.data_coeffs = np.concatenate(temp_data_LMK, axis=0)
       self.data_coeffs_var = np.concatenate(temp_data_var_LMK, axis=0)
+      #if self.C_distributions is not None:
+      #  temp_C_distributions_LMK = np.concatenate(temp_C_distributions_LMK)
     
        
     # Prune dom axis
     self.dom = self.dom[self.dom_mask]
     self.data_coeffs = self.data_coeffs[:,self.dom_mask]
     self.data_coeffs_var = self.data_coeffs_var[:,self.dom_mask]
+    #if self.C_distributions is not None:
+    #  self.C_distributions = temp_C_distributions_LMK[:,self.dom_mask,:]
     self.atm_scat = self.atm_scat[self.dom_mask]
     if self.experimental_var is not None:
       self.experimental_var = self.experimental_var[:,self.dom_mask]
@@ -543,6 +792,7 @@ class density_extraction:
         handles.append(ax.errorbar(self.dom, self.data_coeffs[lg,:],\
             np.sqrt(self.data_coeffs_var[lg,:]),\
             label="legendre {}-{}-{}".format(*self.data_LMK[lg])))
+        ax.plot(self.dom, self.data_coeffs[lg,:], '-k')
         ax2 = ax.twinx()
         ax2.plot(self.dom, self.wiener[lg,:], color='gray')
         ax2.tick_params(axis='y', labelcolor='gray') 
@@ -550,6 +800,8 @@ class density_extraction:
         fig.savefig("./plots/{}/data_coeffs_lg-{}-{}-{}.png".format(
           self.data_params["molecule"], *self.data_LMK[lg]))
         plt.close()
+        #if self.data_LMK[lg][0] == 2 and self.data_LMK[lg][-1] == 0:
+        #  print(self.data_coeffs[lg,:])
 
     # Must normalize filter to account for the removed bins
     w_norm_ = np.mean(self.wiener, axis=-1, keepdims=True)
@@ -613,40 +865,24 @@ class density_extraction:
 
 
   
-  def get_scattering_amplitudes(self):
+  def calculate_coeffs_lmk(self, R, lmk):
 
-    self.scat_amps_interp = {}
-    for atm in self.atom_types:
-      if atm in self.scat_amps_interp:
-        continue
+    temp_data_Lcalc = self.data_Lcalc
+    temp_data_Mcalc = self.data_Mcalc
+    temp_data_Kcalc = self.data_Kcalc
 
-      angStr = []
-      sctStr = []
-      fName = os.path.join(self.data_params["scat_amps_path"],
-          self.atom_info[atm][0] + "_dcs.dat")
-      with open(fName, 'r') as inpFile:
-        ind=0
-        for line in inpFile:
-          if ind < 31:
-            ind += 1
-            continue
+    self.data_Lcalc = np.reshape(lmk[:,0], (-1, 1, 1))
+    self.data_Mcalc = np.reshape(lmk[:,1], (-1, 1, 1))
+    self.data_Kcalc = np.reshape(lmk[:,2], (-1, 1, 1))
 
-          angStr.append(line[2:11])
-          sctStr.append(line[39:50])
+    calc_coeffs = self.calculate_coeffs(R)
+    
+    self.data_Lcalc = temp_data_Lcalc
+    self.data_Mcalc = temp_data_Mcalc
+    self.data_Kcalc = temp_data_Kcalc
 
-      angs = np.array(angStr).astype(np.float64)*np.pi/180
-      q = 4*np.pi*np.sin(angs/2.)/self.db_lambda
-      scts = np.sqrt(np.array(sctStr).astype(np.float64))
+    return calc_coeffs
 
-      """
-      if atm == "C":
-        continue
-      if atm == "N":
-        self.scat_amps_interp["C"] = interp1d(q, scts*1.5, 'cubic')
-      """
-      self.scat_amps_interp[atm] = interp1d(q, scts, 'cubic')
-
-  
   def calculate_coeffs(self, R):
 
     # Calculate pair-wise vectors
@@ -695,7 +931,7 @@ class density_extraction:
     return calc_coeffs
 
  
-  def calculate_coeffs_ensemble(self, R, w=None):
+  def calculate_coeffs_ensemble(self, R):
 
     # Rotate molecule into the MF (Principal axis of I)
     R = self.rotate_to_principalI_ensemble(R).transpose((1,2,0))
@@ -703,7 +939,6 @@ class density_extraction:
     # Calculate pair-wise vectors
     all_dists = calc_dists(R)
     dists = all_dists[self.dist_inds]
-    #print("de", dists)
 
     # Calculate diffraction response
     C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
@@ -747,6 +982,9 @@ class density_extraction:
   def default_log_prior(self, theta):
     return np.zeros(theta.shape[0])
 
+  def gaussian_log_likelihood(self, calc_coeffs):
+    return -0.5*(self.eval_data_coeffs - calc_coeffs)**2\
+        /self.eval_data_coeffs_var
 
   def log_likelihood_density(self, theta, n=0):
 
@@ -758,8 +996,7 @@ class density_extraction:
     calc_coeffs = self.calculate_coeffs_ensemble(R)
 
     prob = np.nanmean(np.nanmean(
-        -0.5*self.wiener*(self.eval_data_coeffs - calc_coeffs)**2\
-            /self.eval_data_coeffs_var,
+          self.wiener*self.C_log_likelihood(calc_coeffs),
         axis=-1), axis=-1)
     #    + np.log(1/np.sqrt(self.data_coeffs_var)))
  
@@ -776,8 +1013,7 @@ class density_extraction:
     calc_coeffs = self.calculate_coeffs_ensemble(R)
 
     prob = np.nansum(np.nansum(
-        -0.5*self.wiener*(self.eval_data_coeffs - calc_coeffs)**2\
-            /self.eval_data_coeffs_var,
+          self.wiener*self.C_log_likelihood(calc_coeffs),
         axis=-1), axis=-1)
     #    + np.log(1/np.sqrt(self.data_coeffs_var)))
  
@@ -798,7 +1034,7 @@ class density_extraction:
 
   def setup_sampler(self, nwalkers=None, ndim=None, expect_file=False):
 
-    fileName = os.path.join("output", self.get_fileName() + ".h5")
+    fileName = os.path.join(self.data_params["output_dir"], self.get_fileName() + ".h5")
     print("FNAME", fileName)
 
     exists = os.path.exists(fileName)
@@ -855,7 +1091,7 @@ class density_extraction:
       if not np.isnan(autocorr):
         # Plot Progress
         self.plot_emcee_results(
-            self.sampler.get_chain(discard=2*int(autocorr),
+          self.sampler.get_chain(discard=2*int(autocorr),
               thin=int(autocorr)))
 
         # Check convergence
@@ -919,7 +1155,9 @@ class density_extraction:
 
   def save_emcee_backend(self):
     
-    fileName = os.path.join("output", self.get_fileName() + ".h5")
+    fileName = os.path.join(
+        self.data_params["output_dir"], self.get_fileName() + ".h5")
+    print("Saving {}".format(fileName))
     with h5py.File(fileName, "w") as h5:
 
       ###  Saving Backend  ###
@@ -995,10 +1233,12 @@ class density_extraction:
     #samples = self.sampler.get_chain()
     print("SAMPLE", samples.shape, self.get_fileName())
     Nsamples = samples.shape[-1]
-    if labels is None:
+    if labels is None and "labels" not in self.data_params:
       labels = []
       for i in range(Nsamples):
         labels.append("r$\theta_{}$".format(i))
+    else:
+      labels = self.data_params["labels"]
 
     fig, axs = plt.subplots(Nsamples, figsize=(2.5*Nsamples, 10), sharex=True)
     for i in range(len(labels)):
@@ -1142,10 +1382,10 @@ class density_extraction:
     for l in np.sort(np.unique(self.data_params["fit_bases"][:,0])):
       lg_name += "-{}".format(int(l))
 
+    folder = os.path.join(self.data_params["molecule"],
+        self.data_params["experiment"], dtype, lg_name)
     if folder_only:
-      return os.path.join(
-          self.data_params["molecule"], dtype, 
-          self.data_params["posterior"], lg_name)
+      return folder
 
     fileName = "results_{}_range-{}-{}".format(
         dtype, 
@@ -1158,6 +1398,8 @@ class density_extraction:
 
         if "simulate_error" in self.data_params:
           etype, variance_scale = self.data_params["simulate_error"]
+          if etype == "StoN":
+            variance_scale = variance_scale[0]
           etype = etype.lower()
 
           fileName += "_error-{0}_scale-{1:.3g}".format(
@@ -1168,14 +1410,12 @@ class density_extraction:
 
     if suffix is not None:
       fileName += suffix
-    return os.path.join(
-        self.data_params["molecule"], dtype, 
-        self.data_params["posterior"], lg_name, fileName)
+    return os.path.join(folder, fileName)
 
 
   def save_results(self, probs, distributions):
 
-    fileName = os.path.join("output",
+    fileName = os.path.join(self.data_params["output_dir"],
         self.get_fileName(np.prod(probs.shape[1])))
     fileName += ".h5"
 
@@ -1192,7 +1432,8 @@ class density_extraction:
 
   def get_results(self):
     
-    fileName = os.path.join("output", self.get_fileName(1000))
+    fileName = os.path.join(
+        self.data_params["output_dir"], self.get_fileName(1000))
     ind = fileName.find("_N-") + 3
     files = glob.glob(fileName[:ind] + "*.h5")
     N = 0
@@ -1217,17 +1458,17 @@ class density_extraction:
       print("INPUT", probs.shape, geometries.shape)
 
       """
-      os.path.join("output", self.data_params["molecule"],
+      os.path.join(self.data_params["output_dir"], self.data_params["molecule"],
           "log_probabilities-{}.npy".format(N)) 
       with open(fName, "rb") as file:
         probs = np.load(file)
 
-      fName = os.path.join("output", self.data_params["molecule"],
+      fName = os.path.join(, self.data_params["molecule"],
           "molecules-{}.npy".format(N)) 
       with open(fName, "rb") as file:
         distributions = np.load(file)
 
-      fName = os.path.join("output", self.data_params["molecule"],
+      fName = os.path.join(self.data_params["output_dir"], self.data_params["molecule"],
           "order-{}.npy".format(N)) 
       with open(fName, "rb") as file:
         order = np.load(file)

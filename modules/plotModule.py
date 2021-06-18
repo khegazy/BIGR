@@ -14,7 +14,12 @@ def calc_dists(R):
       np.expand_dims(np.sqrt(np.sum((R[:,0,:] - R[:,2,:])**2, axis=-1)), -1)], -1)
 
 
-def plot3d(geometries, ax=None, ax_lims=None, fileName="density3d.png", alpha=0.99):
+def plot3d(geometries, ax=None, ax_lims=None,
+    labels=None, fileName="density3d.png", alpha=0.99):
+
+  if labels is None:
+    labels = ["d1", "d2", "d3"]
+
   print("INP shape", geometries.shape)
   geometries_centSub = geometries - geometries[:,np.array([1]),:]
   R = calc_dists(geometries)
@@ -63,7 +68,7 @@ def plot3d(geometries, ax=None, ax_lims=None, fileName="density3d.png", alpha=0.
   zEdges = np.linspace(zm, zM+zdt, Nhbins+1) - zdt/2.
   z = np.linspace(zm, zM, Nhbins)
 
-  #ax.scatter(X,Y,Z, color='gray', s=size, alpha=alpha)
+  ax.scatter(X,Y,Z, color='gray', s=size, alpha=alpha)
 
   Zhist,_,_ = np.histogram2d(X,Y, [xEdges, yEdges])
   xp,yp = np.meshgrid(x,y)
@@ -89,11 +94,11 @@ def plot3d(geometries, ax=None, ax_lims=None, fileName="density3d.png", alpha=0.
   ax.yaxis.pane.set_edgecolor('w')
   ax.zaxis.pane.set_edgecolor('w')
 
-  ax.set_xlabel("$NO^{(1)}$ $[\AA]$")
+  ax.set_xlabel(labels[0])
   ax.set_xlim([xm+xdt, xM-xdt])
-  ax.set_ylabel("$NO^{(2)}$ $[\AA]$")
+  ax.set_ylabel(labels[1])#"$NO^{(2)}$ $[\AA]$")
   ax.set_ylim([ym+ydt, yM-ydt])
-  ax.set_zlabel("Angle [rad]")
+  ax.set_zlabel(labels[2])
   ax.set_zlim([zm+zdt, zM-zdt])
 
   if ax is None:
