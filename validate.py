@@ -49,12 +49,12 @@ def log_prior_2dof(theta):
 
 
 def theta_to_cartesian(theta):
-    st, ct = np.sin(theta[:,2]/2), np.cos(theta[:,2]/2)
-    molecules = np.zeros((theta.shape[0], 3, 3))
-    molecules[:,0,0] = theta[:,0]*ct
-    molecules[:,0,2] = theta[:,0]*st
-    molecules[:,2,0] = theta[:,1]*ct
-    molecules[:,2,2] = -1*theta[:,1]*st
+    st, ct = np.sin(theta[:,:,2]/2), np.cos(theta[:,:,2]/2)
+    molecules = np.zeros((theta.shape[0], theta.shape[1], 3, 3))
+    molecules[:,:,0,0] = theta[:,:,0]*ct
+    molecules[:,:,0,2] = theta[:,:,0]*st
+    molecules[:,:,2,0] = theta[:,:,1]*ct
+    molecules[:,:,2,2] = -1*theta[:,:,1]*st
 
     return molecules
 
@@ -71,14 +71,15 @@ def theta_to_cartesian_2dof(theta):
 
 
 def initialize_walkers(params, molecule):
-    d1 = np.linalg.norm(molecule[0] - molecule[1])
-    d2 = np.linalg.norm(molecule[2] - molecule[1])
-    ang = np.arccos(np.sum(
-        (molecule[0] - molecule[1])*(molecule[2] - molecule[1]))/(d1*d2))
-    dists = rnd.normal(0, 1, size=(params["Nwalkers"], 3)) 
+    #d1 = np.linalg.norm(molecule[0] - molecule[1])
+    #d2 = np.linalg.norm(molecule[2] - molecule[1])
+    #ang = np.arccos(np.sum(
+    #    (molecule[0] - molecule[1])*(molecule[2] - molecule[1]))/(d1*d2))
+    dists = rnd.normal(-1, 1,
+        size=(params["Nwalkers"], len(params["sim_thetas"])-1))
 
-    dists *= 0.005*np.array([[d1, d2, ang]])
-    dists += np.array([[d1, d2, ang]])
+    dists *= 0.05*np.expand_dims(np.array(params["sim_thetas"])[:-1], 0)
+    dists += np.expand_dims(np.array(params["sim_thetas"])[:-1], 0)
 
     return dists 
 
@@ -97,18 +98,21 @@ def initialize_walkers_2dof(params, molecule):
 
 std_r = 0.02
 std_a = 0.01
-def molecule_ensemble_generator(molecule):
-    N = 51
-    d1 = np.linalg.norm(molecule[0] - molecule[1])
-    d2 = np.linalg.norm(molecule[2] - molecule[1])
-    ang = np.arccos(np.sum(
-        (molecule[0] - molecule[1])*(molecule[2] - molecule[1]))/(d1*d2))
-    def Prob(x, m, s):
-        return np.exp(-0.5*((x-m)/s)**2)/(s*np.sqrt(2*np.pi))
+def Prob(x, m, s):
+    return np.exp(-0.5*((x-m)/s)**2)/(s*np.sqrt(2*np.pi))
 
+def molecule_ensemble_generator(thetas):
+   
+    d1, std_1 = thetas[:,0], thetas[:,1] 
+    d2, std_2 = thetas[:,2], thetas[:,3]
+    ang, std_a = thetas[:,4], thetas[:,5]
+    if thetas.shape[-1] == 7:
+      N = int(thetas[0,6])
+    else:
+      N = 7
 
-    d1_distribution_vals = np.linspace(d1-std_r*4, d1+std_r*4, N)
-    d2_distribution_vals = np.linspace(d2-std_r*4, d2+std_r*4, N)
+    d1_distribution_vals = np.linspace(d1-std_1*4, d1+std_1*4, N)
+    d2_distribution_vals = np.linspace(d2-std_2*4, d2+std_2*4, N)
     ang_distribution_vals = np.linspace(ang-std_a*4, ang+std_a*4, N)
 
     d1_probs = Prob(d1_distribution_vals, d1, std_r)
@@ -117,43 +121,62 @@ def molecule_ensemble_generator(molecule):
     d2_probs /= np.sum(d2_probs)
     ang_probs = Prob(ang_distribution_vals, ang, std_a)
     ang_probs /= np.sum(ang_probs)
-    thetas = np.ones((N,N,N,3))*np.nan
-    joint_probs = np.ones((N,N,N,1))*np.nan
 
-    i1 = np.arange(N)
-    for i in i1:
-        thetas[i,:,:,0] = d1_distribution_vals[i]
-        for j in i1:
-            thetas[i,j,:,1] = d2_distribution_vals[j]
-            thetas[i,j,i1,2] = ang_distribution_vals[i1]
-            joint_probs[i,j,:,0] = d1_probs[i]*d2_probs[j]*ang_probs
+    ntt_1 = np.tile(np.expand_dims(d1_distribution_vals.transpose(), -1), (1,1,N**2))
+    ntt_1 = np.reshape(ntt_1, (thetas.shape[0],-1))
+    joint_probs = np.tile(np.expand_dims(d1_probs.transpose(), -1), (1,1,N**2))
+    joint_probs = np.reshape(joint_probs, (thetas.shape[0], -1))
 
-    thetas = np.reshape(thetas, (-1,3))
-    joint_probs = np.reshape(joint_probs, (-1,1))
+    ntt_2 = np.tile(np.expand_dims(d2_distribution_vals.transpose(), -1), (1,1,N))
+    ntt_2 = np.tile(ntt_2, (1,N,1))
+    ntt_2 = np.reshape(ntt_2, (thetas.shape[0],-1))
+    joint_probs = joint_probs*np.reshape(
+        np.tile(
+          np.tile(np.expand_dims(d2_probs.transpose(), -1), (1,1,N)),
+          (1,N,1)), (thetas.shape[0], -1))
 
-    molecules = theta_to_cartesian(thetas)
-    norm = np.sum(joint_probs)
-    mean_thetas = np.sum(thetas*joint_probs, 0)/norm
-    mean_cartesian = np.sum(np.expand_dims(joint_probs, -1)*molecules, 0)/norm
-    mean_d3 = np.linalg.norm(np.sum((molecules[:,0] - molecules[:,-1])*joint_probs, 0)/norm)
-    std_thetas = np.sqrt(np.sum((thetas - mean_thetas)**2*joint_probs, 0)/norm)
-    std_cartesian = np.sqrt(np.sum(np.expand_dims(joint_probs, -1)*(molecules - mean_cartesian)**2, 0)/norm)
-    std_d3 = np.sqrt(
-      np.sum(joint_probs[:,0]*(np.linalg.norm(molecules[:,0]-molecules[:,-1], axis=-1)-mean_d3)**2, 0)/norm)
+    ntt_3 = np.tile(ang_distribution_vals.transpose(),(1,N**2))
+    joint_probs = joint_probs*np.tile(ang_probs.transpose(), (1,N**2))
 
-    print("\n#####  Mean molecule thetas  #####")
-    print(mean_thetas)
-    print("\n#####  STD molecule thetas  #####")
-    print(std_thetas)
-    print("\n#####  Mean molecule cartesian  #####")
-    print(mean_cartesian)
-    print("\n#####  STD molecule cartesian  #####")
-    print(std_cartesian)
-    print("\n#####  Mean d3  #####")
-    print(mean_d3)
-    print("\n#####  STD d3  #####")
-    print(std_d3)
-    print("\n")
+    new_thetas = np.concatenate([
+        np.expand_dims(ntt_1, -1),
+        np.expand_dims(ntt_2, -1),
+        np.expand_dims(ntt_3, -1)], -1)
+    del ntt_1, ntt_2, ntt_3
+
+    molecules = theta_to_cartesian(new_thetas)
+    joint_probs /= np.sum(joint_probs, -1, keepdims=True)
+    
+    if thetas.shape[0] == 1:
+        mean_thetas = np.sum(
+            new_thetas*np.expand_dims(joint_probs[0], -1), 1)
+        mean_cartesian = np.sum(molecules\
+            *np.expand_dims(np.expand_dims(joint_probs, -1), -1), 1)
+        mean_d3 = np.sum(joint_probs\
+            *np.linalg.norm(molecules[:,:,0] - molecules[:,:,-1], axis=-1), 1)
+        std_thetas = np.sqrt(
+            np.sum((new_thetas - mean_thetas)**2\
+              *np.expand_dims(joint_probs, -1), 1))
+        std_cartesian = np.sqrt(
+            np.sum(np.expand_dims(np.expand_dims(joint_probs, -1), -1)\
+              *(molecules - mean_cartesian)**2, 1))
+        std_d3 = np.sqrt(np.sum(joint_probs\
+            *(np.linalg.norm(molecules[:,:,0]-molecules[:,:,-1], axis=-1)\
+              -mean_d3)**2, 1))
+
+        print("\n#####  Mean molecule thetas  #####")
+        print(mean_thetas[0])
+        print("\n#####  STD molecule thetas  #####")
+        print(std_thetas[0])
+        print("\n#####  Mean molecule cartesian  #####")
+        print(mean_cartesian[0])
+        print("\n#####  STD molecule cartesian  #####")
+        print(std_cartesian[0])
+        print("\n#####  Mean d3  #####")
+        print(mean_d3[0])
+        print("\n#####  STD d3  #####")
+        print(std_d3[0])
+        print("\n")
 
     #print(np.sum(molecules*np.expand_dims(weights, -1), 0))
     return molecules, joint_probs

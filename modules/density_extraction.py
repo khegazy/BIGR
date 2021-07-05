@@ -10,6 +10,7 @@ import numpy.random as rnd
 from multiprocessing import Pool
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
+from modules.spherical_j_cpp import spherical_j
 
 sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
 from diffraction_simulation import diffraction_calculation
@@ -71,6 +72,7 @@ class density_extraction:
     self.tau_convergence = None
 
     self.data_params = data_params
+    self.ensemble_generator = ensemble_generator
     self.atom_info = {
       "H" : ["hydrogen", 1.0],
       "C" : ["carbon", 12.0],
@@ -180,11 +182,16 @@ class density_extraction:
     self.dist_sms_scat_amps = np.expand_dims(
         np.array(self.dist_sms_scat_amps), axis=0)
 
+    # Get Spherical Bessel function calculation
+    self.spherical_j = self.get_spherical_j_calc(self.data_LMK[:,0])
 
     # Simulate data if needed
     print("simulate data")
+    self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
+    self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
+    self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
     if not self.data_or_sim:
-      self.simulate_data(ensemble_generator)
+      self.simulate_data()
 
     print("pruning data")
     # Prune data in time and dom
@@ -266,10 +273,37 @@ class density_extraction:
         def fit_log_likelihood(calc_coeffs):
     """
 
-    # Parameters for calculating coefficients
-    self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
-    self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
-    self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
+    ###  Perform Sanity Checks and Function Validations  ###
+    print("###############################################################")
+    print("#####  Checking Scale of Spherical Bessel Function Error  #####")
+    print("###############################################################")
+    j_check = self.spherical_j(np.reshape(self.dom, (1, -1, 1, 1)))
+    print("DONE J", self.data_LMK[:,0])
+    #print(j_check[0,0,75:100,0,0])
+    #print(sp.special.spherical_jn(2, self.dom)[75:100])
+    for n in np.unique(self.data_LMK[:,0]):
+      ii = np.where(self.data_LMK[:,0] == n)[0][0]
+      std_check = np.abs(sp.special.spherical_jn(n, self.dom)-j_check[ii,0,:,0,0])\
+          /np.sqrt(self.eval_data_coeffs_var[ii])
+      m = np.amax(std_check)
+      if m < 1.:
+        mm = "Passed"
+      else:
+        mm = "FAILED AT Q={}".format(self.dom[np.argmax(std_check)])
+      print("L = {} \t {} std ... {}  {}".format(n, m, mm, ii))
+
+      # Plot Comparison
+      fig, ax = plt.subplots()
+      ax.plot(self.dom, j_check[ii,0,:,0,0], '-k')
+      ax.plot(self.dom, sp.special.spherical_jn(n, self.dom), '--b')
+      ax.set_xlabel("jn(q)")
+      ax.set_xlim(self.dom[0], self.dom[-1])
+      ax1 = ax.twinx()
+      ax1.plot(self.dom, std_check)
+      ax1.set_xlabel("residual [std]")
+      #ax1.plot(px, (res[i][0,cut:,0,0]-sp.special.spherical_jn(i*2, x[0,cut:,0,0]))/sp.special.spherical_jn(i*2, x[0,cut:,0,0]))
+      fig.savefig("check_jl{}_calculation.png".format(n))
+
 
 
 
@@ -329,7 +363,7 @@ class density_extraction:
     I_tensor[:,:,self.Itn_idiag,self.Itn_idiag] =\
         R[:,:,self.Itn_inds1]**2 + R[:,:,self.Itn_inds2]**2
 
-    return np.sum(I_tensor*self.mass, 1)
+    return np.sum(I_tensor*self.mass, -3)
 
 
 
@@ -393,34 +427,34 @@ class density_extraction:
       #    SN_ratio_lg2, self.data_params["fit_range"]))
 
 
-  def simulate_data(self, ensemble_generator):
+  def simulate_data(self):
     molecule = self.setup_calculations(skip_scale=True, plot=False)
-    self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
-    self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
-    self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
     self.C_distributions = []
     
-    if ensemble_generator is not None:
-      ensemble = ensemble_generator(molecule)
+    if self.ensemble_generator is not None:
+      ensemble = self.ensemble_generator(
+          np.expand_dims(np.array(self.data_params["sim_thetas"]), 0))
       if len(ensemble) == 2:
         ensemble, weights = ensemble
       else:
         weights = np.ones((ensemble.shape[0], 1))
 
-      print("SHAAAAPES", ensemble.shape, weights.shape)
-      self.input_data_coeffs = calc_coeffs = np.zeros(
+      self.input_data_coeffs = np.zeros(
           (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
       self.input_data_coeffs_var = None
 
-      ind, ind_step = 0, 10000
-      while ind < ensemble.shape[0]:
-        ind_end = np.min([ensemble.shape[0], ind + ind_step])
+      ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
+      while ind < ensemble.shape[1]:
+        ind_end = np.min([ensemble.shape[1], ind + ind_step])
         #calc_coeffs = self.calculate_coeffs_ensemble(ensemble)
-        calc_coeffs = self.calculate_coeffs_ensemble(ensemble[ind:ind_end])
+        calc_coeffs = self.calculate_coeffs_ensemble(ensemble[:,ind:ind_end])
         self.input_data_coeffs = self.input_data_coeffs\
-            + np.sum(calc_coeffs*np.expand_dims(weights[ind:ind_end], -1), 0)
+            + np.sum(np.sum(calc_coeffs\
+            *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1),
+            0), 0)
         self.C_distributions.append(calc_coeffs)
         ind = ind_end
+ 
       """
       ind, ind_step = 0, 10000
       while ind < ensemble.shape[0]:
@@ -834,7 +868,7 @@ class density_extraction:
   def rotate_to_principalI_ensemble(self, R):
 
     # Center of Mass
-    R -= np.expand_dims(np.sum(R*self.mass[:,0], -2)/np.sum(self.mass), 1)
+    R -= np.expand_dims(np.sum(R*self.mass[:,0], -2)/np.sum(self.mass), -1)
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor_ensemble(R)
@@ -866,6 +900,9 @@ class density_extraction:
 
   
   def calculate_coeffs_lmk(self, R, lmk):
+    """
+    Calculate only the C coefficients for the specified lmk values
+    """
 
     temp_data_Lcalc = self.data_Lcalc
     temp_data_Mcalc = self.data_Mcalc
@@ -883,25 +920,15 @@ class density_extraction:
 
     return calc_coeffs
 
-  def calculate_coeffs(self, R):
+  def calculate_coeffs(self, molecules):
+
+    # Rotate molecule into the MF (Principal axis of I)
+    R = self.rotate_to_principalI(molecules)
 
     # Calculate pair-wise vectors
     all_dists = calc_dists(R)
     dists = all_dists[self.dist_inds]
-    #print("R", R)
-    #print("DISTS", dists)
 
-    """
-    dists[0,1] -= 0.002
-    dists[2,1] -= 0.002
-    print("d", dists)
-    aa = np.array([2.338, 2.34, 2.342, 2.344])
-    print("WTF Y")
-    print(sp.special.sph_harm(-1*self.data_Kcalc, self.data_Lcalc,
-      np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1),
-      np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1)))
-    sys.exit(0)
-    """
     # Calculate diffraction response
     C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
@@ -912,10 +939,6 @@ class density_extraction:
         np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1))
 
 
-    #print("J", J.shape)
-    #for i in range(3):
-    #  print("J",i,J[0,i,:10])
-    #print(R.shape, all_dists.shape, dists.shape, C.shape, J.shape, Y.shape)
     # Sum all pair-wise contributions
     calc_coeffs = np.sum(np.real(self.dist_sms_scat_amps*C*J*Y), axis=1)
 
@@ -934,36 +957,56 @@ class density_extraction:
   def calculate_coeffs_ensemble(self, R):
 
     # Rotate molecule into the MF (Principal axis of I)
-    R = self.rotate_to_principalI_ensemble(R).transpose((1,2,0))
+    #R = self.rotate_to_principalI_ensemble(R).transpose((1,2,0))
+    tic = time.time()
+    R = self.rotate_to_principalI_ensemble(R).transpose((2,3,0,1))
+    print("\trotate time:", time.time()-tic)
 
     # Calculate pair-wise vectors
     all_dists = calc_dists(R)
     dists = all_dists[self.dist_inds]
 
     # Calculate diffraction response
+    ttic = time.time()
+    tic = time.time()
     C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
-    #print(self.calc_dom.shape, dists[:,0].shape, self.data_Lcalc.shape)
-    J = sp.special.spherical_jn(np.expand_dims(self.data_Lcalc, -1), 
-        np.expand_dims(self.calc_dom, -1)*np.expand_dims(dists[:,0], axis=1))
-    Y = sp.special.sph_harm(-1*np.expand_dims(self.data_Kcalc, -1),
-        np.expand_dims(self.data_Lcalc, -1),
+    print("\tC time:", C.shape, time.time()-tic)
+    tic = time.time()
+    #J = sp.special.spherical_jn(
+    #    np.expand_dims(np.expand_dims(self.data_Lcalc, -1), -1),
+    #    np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
+    #    *np.expand_dims(dists[:,0], axis=1))
+    inp = np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
+        *np.expand_dims(dists[:,0], axis=1)
+    J = self.spherical_j(inp)
+    #    np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
+    #    *np.expand_dims(dists[:,0], axis=1))
+    print("\tJ time:", inp.shape, J.shape, time.time()-tic)
+    tic = time.time()
+    Y = sp.special.sph_harm(
+        -1*np.expand_dims(np.expand_dims(self.data_Kcalc, -1), -1),
+        np.expand_dims(np.expand_dims(self.data_Lcalc, -1), -1),
         np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=2),
         np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=2))
+    print("\tY:", Y.shape, time.time()-tic)
+    print("\tCJY time:", time.time()-ttic)
 
     # Sum all pair-wise contributions
-    calc_coeffs = np.sum(np.real(np.expand_dims(self.dist_sms_scat_amps, -1)\
-        *np.expand_dims(C, -1)*J*Y), axis=1)
+    tic = time.time()
+    calc_coeffs = np.sum(np.real(
+        np.expand_dims(np.expand_dims(self.dist_sms_scat_amps, -1), -1)\
+        *np.expand_dims(np.expand_dims(C, -1), -1)*J*Y), axis=1)
+    print("\tsum time:", time.time()-tic)
 
     #plt.hist(calc_coeffs[-1,2,:], bins=25, weights=w[:,0])
     #plt.savefig("testDist.png")
     #plt.close()
-    #print("SSSSSSSSSSSSSSSSS", calc_coeffs.shape)
     # Subtract mean and normalize 
     #calc_coeffs -= np.expand_dims(np.mean(calc_coeffs[:,:], axis=1), 1)
-    #calc_coeffs *= self.I
+    calc_coeffs *= self.I
 
-    return calc_coeffs.transpose((2,0,1))
+    return calc_coeffs.transpose((2,3,0,1))
  
 
 
@@ -991,9 +1034,7 @@ class density_extraction:
     # Convert parameters to cartesian coordinates
     molecules = self.theta_to_cartesian(theta)
 
-    R = self.rotate_to_principalI_ensemble(molecules)
-
-    calc_coeffs = self.calculate_coeffs_ensemble(R)
+    calc_coeffs = self.calculate_coeffs_ensemble(molecules)
 
     prob = np.nanmean(np.nanmean(
           self.wiener*self.C_log_likelihood(calc_coeffs),
@@ -1003,15 +1044,52 @@ class density_extraction:
     return prob 
 
 
+  """
   def log_likelihood_optimal(self, theta, n=0):
 
     # Convert parameters to cartesian coordinates
     molecules = self.theta_to_cartesian(theta)
 
-    R = self.rotate_to_principalI_ensemble(molecules)
+    calc_coeffs = self.calculate_coeffs_ensemble(molecules)
 
-    calc_coeffs = self.calculate_coeffs_ensemble(R)
+    prob = np.nansum(np.nansum(
+          self.wiener*self.C_log_likelihood(calc_coeffs),
+        axis=-1), axis=-1)
+    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
+ 
+    return prob
+  """
 
+
+  def log_likelihood_optimal(self, theta, n=0):
+
+    # Simulate the molecular ensemble
+    tic = time.time()
+    print("INP theta shape",theta.shape)
+    ensemble = self.ensemble_generator(theta)   # Cartesian
+    print("OUT theta shape",theta.shape)
+    if len(ensemble) == 2:
+      ensemble, weights = ensemble
+    else:
+      weights = np.ones((ensemble.shape[0], 1))
+    print("Ensemble time:", time.time()-tic)
+
+    calc_coeffs = np.zeros(
+        (theta.shape[0], self.data_LMK[:,0].shape[0], self.dom.shape[0]))
+
+    ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
+    tic = time.time()
+    while ind < ensemble.shape[1]:
+      ind_end = np.min([ensemble.shape[1], ind + ind_step])
+      calc_coeffs_ = self.calculate_coeffs_ensemble(ensemble[:,ind:ind_end])
+      calc_coeffs = calc_coeffs\
+          + np.sum(calc_coeffs_\
+            *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1), 1)
+      print("temp", ind, ind_step, ensemble[:,ind:ind_end].shape, calc_coeffs_.shape, calc_coeffs.shape)
+      ind = ind_end
+
+    print("calc time:", time.time()-tic)
+    
     prob = np.nansum(np.nansum(
           self.wiener*self.C_log_likelihood(calc_coeffs),
         axis=-1), axis=-1)
@@ -1154,7 +1232,7 @@ class density_extraction:
 
 
   def save_emcee_backend(self):
-    
+   
     fileName = os.path.join(
         self.data_params["output_dir"], self.get_fileName() + ".h5")
     print("Saving {}".format(fileName))
@@ -1487,6 +1565,186 @@ class density_extraction:
       return\
           [[] for i in range(self.data_params["Nnodes"])],\
           [[] for i in range(self.data_params["Nnodes"])]
+
+
+  def get_spherical_j_calc(self, n):
+
+    if "jn_calc" not in self.data_params:
+      self.data_params["jn_calc"] = 0
+
+    if self.data_params["jn_calc"] == 0:
+      def numpy_jn(x):
+        return sp.special.spherical_jn(self.data_Lcalc, x) 
+
+      return numpy_jn
+
+    elif self.data_params["jn_calc"] == 1:
+      if np.sum(n % 2) == 0:
+        ind = 0
+        lmk = self.data_LMK[:,0]
+        keep_inds = np.ones(len(lmk)).astype(bool) 
+        for i in np.arange(np.amax(lmk)//2+1):
+          for j in np.arange(len(lmk)):
+            if i*2 < lmk[j] and i*2 not in lmk:
+              print("inserting", j, i*2)
+              lmk = np.insert(lmk, j, i*2, axis=0)
+              keep_inds = np.insert(keep_inds, j, False, axis=0)
+      
+        def calc_even_only(x):
+          return spherical_j(x, lmk)[keep_inds]
+
+        return calc_even_only
+
+    elif self.data_params["jn_calc"] == 2:
+      
+      if np.sum(n % 2) == 0:
+        N = (np.unique(n)/2).astype(int)
+        N_max = int(np.amax(N))
+        N_elements = 2*N_max
+        counts = []
+        for nn in np.unique(n):
+          counts.append(np.sum(nn == n))
+
+        # Indices of invx for sin (even) and cos (odd) terms
+        even_inds = np.where(np.arange(N_elements+1)%2 == 0)[0]
+        odd_inds = np.where(np.arange(N_elements+1)%2 == 1)[0]
+        print("EVN", N_max, even_inds)
+
+        # Remove contributions that are not in given n
+        keep_inds = np.ones(int(np.amax(N))+1).astype(bool)
+        remove_inds = []
+        for i in range(len(keep_inds)):
+          if i not in N:
+            keep_inds[i] = False
+            remove_inds.append(i)
+
+        # only nonzero coeffs: 1/x^n | n is even/odd for left/right
+        # This is filled in by hand, use wolfram alpha to find coefficients
+        scales = [
+            [np.array([1]), np.array([0])],
+            [np.array([-1, 3]), np.array([-3])],
+            [np.array([1, -45, 105]), np.array([10, -105])],
+            [np.array([-1, 210, -4725, 10395]), np.array([-21, 21*60, -21*495])],
+            [np.array([1, -630, 51975, -945945, 2027025]),
+                9*np.array([4, -770, 30030, -225225])]]
+
+        #for i in reversed(remove_inds):
+        #  del scales[i]
+
+        def calc_even_only(x):
+          res = []
+
+          print(x.shape)
+          tt = time.time()
+          invx = [1./x]
+          invx.append(invx[0]/x)
+          invx = np.array(invx)
+          print("T1", time.time() - tt)
+
+          # Calculate j0
+          tt = time.time()
+          #res.append((np.sin(x)*invx[0]))
+          #j0_ = np.cos(x)*invx[0]
+          res.append(np.sin(x))
+          j0_ = np.sqrt(1-res[0]**2)*invx[0]
+          neg_inds = np.where((x%(2*np.pi)>np.pi/2) & (x%(2*np.pi)<3*np.pi/2))
+          j0_[neg_inds] *= -1
+          res[0] = res[0]*invx[0]
+          print("T2", time.time() - tt)
+
+          # Calculate j2
+          tt = time.time()
+          #res.append(np.exp(np.log(scales[1][0][0] +  scales[1][0][1]*invx[1]) + np.log(res[0]))
+          #    + np.exp(np.log(scales[1][1][0]*invx[0])+np.log(j0_)))
+          res.append(((scales[1][0][0] +  scales[1][0][1]*invx[1])*res[0]
+              + scales[1][1][0]*invx[0]*j0_).astype(np.double))
+          print("T3", time.time() - tt)
+
+          tt = time.time()
+          for i in np.arange(N_max+1):
+            if i == 0 or i == 1:
+              continue
+
+            t = time.time()
+            nn = (i-1)*2.
+            #res.append((4.*nn*(nn+1)*invx[1] - (1 + (nn+1)/(nn-1)))*res[-1] - res[-2]*(nn+1)/(nn-1))
+            res.append(
+                ((2*nn+1)*(2*(nn+1)+1)*invx[1] - (1 + (2*(nn+1)+1)/(2*(nn-1)+1)))*res[-1]\
+                - res[-2]*(2*(nn+1)+1)/(2*(nn-1)+1))
+            print("tt", time.time() - t)
+          print("T4", time.time() - tt)
+
+          tt = time.time()
+          for i in np.arange(N_max+1):
+            if x[0,0,0,0] == 0:
+              if i == 0:
+                res[-1][:,0,:,:] = 1.
+              else:
+                res[-1][:,0,:,:] = 0
+          print("T5", time.time() - tt)
+
+          tt = time.time()
+          ic = 0
+          for i in range(len(res)):
+            if keep_inds[i]:
+              res[i] = np.tile(res[i], (counts[ic],1,1,1,1))
+              ic += 1
+          for i in reversed(np.where(np.invert(keep_inds))[0]):
+            del res[i]
+          print("T6", time.time() - tt)
+
+          tt = time.time()
+          a = np.concatenate(res, 0)
+          print("T7", time.time() - tt)
+          print("DONE!!!", a.shape)
+          return np.concatenate(res, 0)
+
+      """
+      def calc_even_only(x):
+          res = []
+          j0 = np.sin(x)/x
+          j0_ = np.cos(x)/x
+          if keep_inds[0]:
+            res.append(copy(j0))
+
+          invx = [np.ones_like(x, dtype=np.double)]
+          print("going to", N_elements)
+          for i in range(N_elements):
+            invx.append((invx[-1]/x).astype(np.double))
+            #invx.append(-1*(i+1)*np.log(x))
+          #invx = np.log(np.array(invx))
+          invx = np.array(invx).astype(np.double)
+
+          res = []
+          for i,nn in enumerate(N):
+            print("SHA", np.reshape(scales[i][0], (-1,1,1,1,1)).shape, invx[even_inds[:len(scales[i][0])]].shape, j0.shape)
+            print("SHA1", np.reshape(scales[i][1], (-1,1,1,1,1)).shape, invx[odd_inds[:len(scales[i][1])]].shape, j0_.shape)
+            print(scales[i][0].shape, invx[even_inds[:len(scales[i][0])]].shape, j0.shape)
+            print(len(scales[i][0]), even_inds)
+            res.append(np.tile(
+                #j0*np.sum(np.exp(np.reshape(scales[i][0], (-1,1,1,1,1))+invx[even_inds[:len(scales[i][0])]]), 0)
+                #+ j0_*np.sum(np.exp(np.reshape(scales[i][1], (-1,1,1,1,1))+invx[odd_inds[:len(scales[i][1])]]), 0),
+                np.einsum('i,iabcd->abcd',
+                  scales[i][0].astype(np.float64), invx[even_inds[:len(scales[i][0])]])*j0\
+                + np.einsum('i,iabcd->abcd',
+                  scales[i][1].astype(np.float64), invx[odd_inds[:len(scales[i][1])]])*j0_,
+                (counts[i],1,1,1,1)))
+            if x[0,0,0,0] == 0:
+              if nn == 0:
+                res[-1][:,:,0,:,:] = 1.
+              else:
+                res[-1][:,:,0,:,:] = 0
+
+
+            print(res[-1].shape)
+            #fig, ax = plt.subplots()
+            #ax.plot(res[-1][0,0,:,0,0], '-k')
+            #ax.plot(sp.special.spherical_jn(nn*2, x[0,:,0,0]), '--b')
+            #fig.savefig("compare_jl{}.png".format(nn*2))
+
+          return np.concatenate(res, 0)
+        """
+      return calc_even_only
 
 
 

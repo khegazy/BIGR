@@ -1,0 +1,95 @@
+#include "spherical_j_cpp.h"
+
+using namespace std;
+
+
+void spherical_j(
+    double* x, int x_len,
+    int* l, int l_len, double* out) {
+  /* 
+   * Require l to contain all even values <= max(l) | Every jn contribution must be saved
+   * in out during the calculation.
+  */ 
+
+  // Find maximum L
+  int l_max = -1;
+  for (int i=0; i<l_len; i++) {cout<<"L: "<<l[i]<<endl; l_max = (l[i] > l_max) ? l[i] : l_max;}
+  int N = l_max/2 + 1;
+
+  // Pointers to different n
+  std::vector<int>* inds = new std::vector<int>[N];
+  for (int n=0; n<N; n++) {
+    for (int i=0; i<l_len; i++) {
+      if (n*2 == l[i]) {inds[n].push_back(i); cout<<"INDS: "<<n<<"  "<<i<<endl;}
+    }
+  }
+
+  // Loop over distances
+  int n = 0;
+  int ind = 0;
+  int stride = x_len;
+  cout<<"stride: "<<stride<<endl;
+  //for (int i=0; i<x_len; i++) stride *= x_shape[i];
+
+  double jnm2, jnm2_, jn, x_sq, fm;
+  double sgn, tnp1p1, tnm1p1;
+  double tpi = 2*3.14159265359;
+  double c1 = tpi/4;
+  double c2 = 3*tpi/4;
+  jnm2 = 0; jn = 0;
+  /*
+  for (int id=0; id<x_shape[0]; id++) {
+    for (int iq=0; iq<x_shape[1]; iq++) {
+      for (int iw=0; iw<x_shape[2]; iw++) {
+        for (int ig=0; ig<x_shape[3]; ig++) {
+  */
+  for (ind=0; ind<x_len; ind++) {
+
+
+    x_sq = x[ind]*x[ind];
+    /////  Calculating j0 and j2  ////
+    // 22
+    jnm2_ = sin(x[ind]);
+    jnm2 = jnm2_/x[ind];
+    fm = fmod(x[ind], tpi);
+    sgn = ((fm > c1) && (fm < c2)) ? -1 : 1;
+    jn  = (3/(x_sq) - 1)*jnm2 - sgn*3*sqrt(1-jnm2_*jnm2_)/x_sq;
+
+    if (ind >= 10 and ind < 20) {
+      cout<<"testing j02: "<<jnm2<<"  "<<jn<<endl;
+      cout<<"testing j02: "<<sin(x[ind])/x[ind]<<"  "<<(3/(x_sq) - 1)*jnm2 - sgn*3*sqrt(1-jnm2_*jnm2_)/x_sq<<endl;
+    }
+    // Filling j0
+    out[ind] = jnm2;
+    // Filling j2
+    out[stride+ind] = jn;
+
+    for (int i=2; i<N; i++) {
+      n = (i-1)*2;
+      tnp1p1 = 2*n + 3;
+      tnm1p1 = 2*n - 1;
+      out[inds[i][0]*stride+ind] = 
+          ((tnp1p1 - 2)*tnp1p1/x_sq - tnp1p1/tnm1p1 - 1)*jn - jnm2*tnp1p1/tnm1p1;
+      if (i == 2) {
+      if (ind >= 10 and ind < 20) {
+        cout<<"x "<<ind<<" : "<<x[ind]<<"  "<<(tnp1p1 - 2)*tnp1p1<<"  "<<(tnp1p1 - 2)*tnp1p1/x_sq<<"  "<<tnp1p1/tnm1p1<<"  "<<jnm2<<"  "<<jn<<"  "<<out[ind]<<"  "<<out[stride+ind]<<endl;
+      }
+      }
+      jnm2 = jn;
+      jn = out[inds[i][0]*stride+ind];
+    }
+  }
+
+  // Refilling
+  for (int i=0; i<N; i++) {
+    if (inds[i].size() > 1) {
+      for (uint j=1; j<inds[i].size(); j++) {
+        for (int k=0; k<x_len; k++) {
+          out[inds[i][j]*stride+k] = out[inds[i][0]*stride+k];
+        }
+      }
+    }
+  }
+  delete[] inds;
+  return;
+}
