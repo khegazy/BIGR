@@ -17,26 +17,10 @@ Below are the packages and versions used, one may install more recent version
 * emcee 3.0.2
 * corner 2.2.1
 
-> Folder structure options and naming conventions for software projects
-
-### A typical top-level directory layout
-
-    .
-    ├── ...
-    ├── test                    # Test files (alternatively `spec` or `tests`)
-    │   ├── benchmarks          # Load and stress tests
-    │   ├── integration         # End-to-end, integration tests (alternatively `e2e`)
-    │   └── unit                # Unit tests
-    └── ...
-
 
 
 Project Organization
 --------------------
-
-> Folder structure options and naming conventions for software projects
-
-### A typical top-level directory layout
 
     .
     ├── README.md          <- The top-level README for developers using this project.
