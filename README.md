@@ -22,6 +22,7 @@ Project Organization
 
 
    ├── README.md          <- The top-level README for developers using this project.
+
    │
    ├── setup.py           <- Makes folders and soft links needed for the analysis
    ├── parameters.py      <- File containing the runtime parameters needed to run the analysis
