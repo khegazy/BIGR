@@ -17,12 +17,22 @@ Below are the packages and versions used, one may install more recent version
 * emcee 3.0.2
 * corner 2.2.1
 
+
+    .
+    ├── ...
+    ├── test                    # Test files (alternatively `spec` or `tests`)
+    │   ├── benchmarks          # Load and stress tests
+    │   ├── integration         # End-to-end, integration tests (alternatively `e2e`)
+    │   └── unit                # Unit tests
+    └── ...
+
+
+
 Project Organization
 --------------------
 
-
+   .
    ├── README.md          <- The top-level README for developers using this project.
-
    │
    ├── setup.py           <- Makes folders and soft links needed for the analysis
    ├── parameters.py      <- File containing the runtime parameters needed to run the analysis
