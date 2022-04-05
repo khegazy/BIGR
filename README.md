@@ -17,6 +17,9 @@ Below are the packages and versions used, one may install more recent version
 * emcee 3.0.2
 * corner 2.2.1
 
+> Folder structure options and naming conventions for software projects
+
+### A typical top-level directory layout
 
     .
     ├── ...
