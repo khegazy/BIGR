@@ -33,7 +33,11 @@ Below are the packages and versions used, one may install more recent version
 
 Project Organization
 --------------------
-> Folder Tree
+
+> Folder structure options and naming conventions for software projects
+
+### A typical top-level directory layout
+
    .
    ├── README.md          <- The top-level README for developers using this project.
    │
