@@ -19,6 +19,8 @@ Below are the packages and versions used, one may install more recent version
 
 Project Organization
 --------------------
+
+
    ├── README.md          <- The top-level README for developers using this project.
    │
    ├── setup.py           <- Makes folders and soft links needed for the analysis
@@ -117,7 +119,7 @@ The runtime parameters that define the analysis procedures, function behaviours,
 
 Analysis Templates
 ------------------
-The files 'build_posterior_template.py', 'mode_search_template.py', and 'modules/module_template.py' are templates for this analysis containing empty functions tha need to be implemented. After implementing these functions one can retrieve the marginal posterior P(theta|C) and find the optimal theta (model) parameters (theta*) for the posterior P(r,theta*|C). Theta* corresponds to the mode of the marginal posterior P(theta|C)
+The files `build_posterior_template.py`, `mode_search_template.py`, and `modules/module_template.py` are templates for this analysis containing empty functions tha need to be implemented. After implementing these functions one can retrieve the marginal posterior P(theta|C) and find the optimal theta (model) parameters (theta*) for the posterior P(r,theta*|C). Theta* corresponds to the mode of the marginal posterior P(theta|C)
 
 NO2 Analysis
 ------------
