@@ -85,37 +85,37 @@ The runtime parameters that define the analysis procedures, function behaviours,
     - 0 <- C++ implementation (Recommended, but cannot include very low q)
     - 1 <- Scipy implementation (Slowest but correct for all q values)
     - 2 <- Optimized Python implementation (Slower than 0 with the same errors)
--  multiprocessing - int | The number of cores to split the C calculations between
--  plot_setup - boolean | If True then plot the imported data, fit to I0, and other setup calculations for sanity checks
--  plot_progress - boolean | If True then plot the chain history and corner plot after every run_limit sampling steps
--  labels (optional) - list of strings | A list of labels for the theta parameters used to label the corner plots. Set to None or do not set at all to use standard labels.
+  - **multiprocessing** - int | The number of cores to split the C calculations between
+  - **plot_setup** - boolean | If True then plot the imported data, fit to I0, and other setup calculations for sanity checks
+  - **plot_progress** - boolean | If True then plot the chain history and corner plot after every run_limit sampling steps
+  - **labels** (optional) - list of strings | A list of labels for the theta parameters used to label the corner plots. Set to None or do not set at all to use standard labels.
 
--  Nwalkers - int | The number of walkers (chains) to simultaneosly run. This correspondes to the number of random initializations for the MCMC.
--  run_limit - int | The number of MCMC sampling steps before the algorithm saves the results and checks for convergence
--  min_acTime_steps (optional) - int | The minimum number of autocorrelations time steps needed before the MCMC can converge. Without this parameter the MCMC will run until it has reached at least 100 autocorrelations steps and the change in the autocorrelation time is less than 1%. 
-*  init_thetas - np.array of type float | The expected theta (model) parameters of the initial (grount) state distribution. This is used to fit I0 and can be used in 'initialize_walkers'
-*  init_thetas_std_scale (optional) - np.array of type float | The width of the distribution from which the walkers (initial theta parameters) are choosen from. This is can be used in 'initialize_walkers'
-*  output_dir - string | The address for the MCMC output folder
-*  save_sim_dir (optional) - string | The address for the folder where the siulated C coefficients and errors are saved to save time from calculating them for each run. If specified and one changes the ensemble generators, make sure to delete this folder in order to rerun the updated ensemble generator.
+  - **Nwalkers** - int | The number of walkers (chains) to simultaneosly run. This correspondes to the number of random initializations for the MCMC.
+  - **run_limit** - int | The number of MCMC sampling steps before the algorithm saves the results and checks for convergence
+  - **min_acTime_steps** (optional) - int | The minimum number of autocorrelations time steps needed before the MCMC can converge. Without this parameter the MCMC will run until it has reached at least 100 autocorrelations steps and the change in the autocorrelation time is less than 1%. 
+  - **init_thetas** - np.array of type float | The expected theta (model) parameters of the initial (grount) state distribution. This is used to fit I0 and can be used in 'initialize_walkers'
+  - **init_thetas_std_scale** (optional) - np.array of type float | The width of the distribution from which the walkers (initial theta parameters) are choosen from. This is can be used in 'initialize_walkers'
+  - **output_dir** - string | The address for the MCMC output folder
+  - **save_sim_dir** (optional) - string | The address for the folder where the siulated C coefficients and errors are saved to save time from calculating them for each run. If specified and one changes the ensemble generators, make sure to delete this folder in order to rerun the updated ensemble generator.
 
-*  simulated_data - boolean | If False, the C coefficients are imported, if True they are calculated along with the error bars
-*  simulated_error - tuple (name, params) | Determines the type of error bar calculation when smulated_data is True. The options are
-          Poissonian (Recommended) : ("StoN", (SNR, range))
-              Poissonian error is added to simulated diffraction images
-              and propagated into the C coefficients. They are normalized
-              such that the C200 signal to noise ratio calculated over
-              range (list) is SNR. 
-          Constant standard deviation : ("constant_sigma", sigma)
-              Sigma will be the standard deviation for all C coefficients
-          Constant background : ("constant_background", sigma)
-              Will apply a constant error to the C coefficient errors such
-              that the C200 signal to noise is given by sigma
-*  sim_thetas - np.array of type float | This array specifies the parameters used to build the molecular ensemble that will generate the simulated C coefficients based on the 'ensemble_generator' function. 
-*  dom - np.array of type float | The "dimension of measurement" the experiment probed. For x-ray and electron diffraction this corresponds to q and s, respectively, measured in inverse angstroms. One may also consider applying this package to photoelectron spectroscopy where the dom would be the electron energy measured in eV. One should set this to None when importing C coefficients. When simulating data, dom will specify the points to calculate the C coefficients.
-*  fit_bases - list of np.array of type int | A list of the LMK coefficients to use in this analysis. If this parameter is not in the dictionary all the imported C_{LMK} coefficients will be used.
-*  isMS - boolean | Set to True if the imported data is already diveded by the atomic scattering, otherwise set to False.
-*  fit_range - list | The upper and lower end of the dom where the MCMC will calculated the log likelihood over.
-*  ADM_params - dictionary | The parameters passed to 'get_ADMs' used to import the ADMs and sample them at the points in time corresponding to the measurement when using them to simulated the "StoN" error bars.
+  - **simulated_data** - boolean | If False, the C coefficients are imported, if True they are calculated along with the error bars
+  - **simulated_error** - tuple (name, params) | Determines the type of error bar calculation when smulated_data is True. The options are
+    - Poissonian (Recommended) : ("StoN", (SNR, range))
+          Poissonian error is added to simulated diffraction images
+          and propagated into the C coefficients. They are normalized
+          such that the C200 signal to noise ratio calculated over
+          range (list) is SNR. 
+    - Constant standard deviation : ("constant_sigma", sigma)
+          Sigma will be the standard deviation for all C coefficients
+    - Constant background : ("constant_background", sigma)
+          Will apply a constant error to the C coefficient errors such
+          that the C200 signal to noise is given by sigma
+  - **sim_thetas** - np.array of type float | This array specifies the parameters used to build the molecular ensemble that will generate the simulated C coefficients based on the 'ensemble_generator' function. 
+  - **dom** - np.array of type float | The "dimension of measurement" the experiment probed. For x-ray and electron diffraction this corresponds to q and s, respectively, measured in inverse angstroms. One may also consider applying this package to photoelectron spectroscopy where the dom would be the electron energy measured in eV. One should set this to None when importing C coefficients. When simulating data, dom will specify the points to calculate the C coefficients.
+  - **fit_bases** - list of np.array of type int | A list of the LMK coefficients to use in this analysis. If this parameter is not in the dictionary all the imported C_{LMK} coefficients will be used.
+  - **isMS** - boolean | Set to True if the imported data is already diveded by the atomic scattering, otherwise set to False.
+  - **fit_range** - list | The upper and lower end of the dom where the MCMC will calculated the log likelihood over.
+  - **ADM_params** - dictionary | The parameters passed to 'get_ADMs' used to import the ADMs and sample them at the points in time corresponding to the measurement when using them to simulated the "StoN" error bars.
 
 
 Analysis Templates
