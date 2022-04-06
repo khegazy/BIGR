@@ -5,7 +5,7 @@ This package approximates the geometric probability of molecules for ultrafast d
 
 Prerequisites
 -------------
-Below are the minimum required versions of Python and used packages:
+Below is the minimum required version of Python, Python packages, and scattering amplitudes:
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
 - `Scipy >= 1.6.2`
@@ -15,6 +15,9 @@ Below are the minimum required versions of Python and used packages:
 - `ctypes >= 1.1.0`
 - `emcee >= 3.0.2`
 - `corner >= 2.2.1`
+- Scattering amplitude
+  - One can calculate scattering amplitudes themselves
+  - Electron scattering amplitudes used for NO2 are found: [repo](https://github.com/khegazy/physics_simulations/commit/1aac7a73e9784cba3e538c69d0d3840a906ee46b)
 
 
 
