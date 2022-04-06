@@ -78,9 +78,9 @@ Parameters
 ----------
 The runtime parameters that define the analysis procedures, function behaviours, and the addresses to output and input files and folders are stored in 'parameters.py'. This dictionary of parameters becomes a member of the density extraction class and is passed to all functions. Because of this one can use this dictionary as a means to import their own variables into the ensemble generators and log probability calculations. Below is a list of parameters and a description
 
-    -  **molecule** - string | The name of the molecule used in the experiment (will make a folder)
-    -  **experiment** - string | A label to name the experiment or different set of parameters (will moke a folder)
-    -  **density_model** - string | Used to distringuish between the Delta, Normal, or any other chosen posterior distribution that one implements. Use this in the main program to choose between different log probability and ensemble calculations that one implements. (will make a folder)
+-  **molecule** - string | The name of the molecule used in the experiment (will make a folder)
+-  **experiment** - string | A label to name the experiment or different set of parameters (will moke a folder)
+-  **density_model** - string | Used to distringuish between the Delta, Normal, or any other chosen posterior distribution that one implements. Use this in the main program to choose between different log probability and ensemble calculations that one implements. (will make a folder)
 *  calc_type - int | Choose the spherical bessel fucntion calculation implementation. If one is having difficulty compiling the libraries in 'cpp_extensions' they can still run the analysis with option 1.
           0 <- C++ implementation (Recommended, but cannot include very low q)
           1 <- Scipy implementation (Slowest but correct for all q values)
