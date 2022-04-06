@@ -5,7 +5,6 @@ from copy import copy
 from collections import defaultdict
 from matplotlib import pyplot as plt
 from parameters import *
-from parameters_data import get_parameters as get_parameters_data
 
 from modules.mode_search import *
 from modules.density_extraction import density_extraction
