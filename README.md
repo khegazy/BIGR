@@ -81,7 +81,7 @@ The runtime parameters that define the analysis procedures, function behaviours,
 -  **molecule** - string | The name of the molecule used in the experiment (will make a folder)
 -  **experiment** - string | A label to name the experiment or different set of parameters (will moke a folder)
 -  **density_model** - string | Used to distringuish between the Delta, Normal, or any other chosen posterior distribution that one implements. Use this in the main program to choose between different log probability and ensemble calculations that one implements. (will make a folder)
-*  calc_type - int | Choose the spherical bessel fucntion calculation implementation. If one is having difficulty compiling the libraries in 'cpp_extensions' they can still run the analysis with option 1.
+*  **calc_type** - int | Choose the spherical bessel fucntion calculation implementation. If one is having difficulty compiling the libraries in 'cpp_extensions' they can still run the analysis with option 1.<br/>
           0 <- C++ implementation (Recommended, but cannot include very low q)
           1 <- Scipy implementation (Slowest but correct for all q values)
           2 <- Optimized Python implementation (Slower than 0 with the same errors)
