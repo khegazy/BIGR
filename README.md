@@ -17,7 +17,11 @@ Below is the minimum required version of Python, Python packages, and scattering
 - `corner >= 2.2.1`
 - Scattering amplitude
   - One can calculate scattering amplitudes themselves
-  - Electron scattering amplitudes used for NO2 are found: [repo](https://github.com/khegazy/physics_simulations/commit/1aac7a73e9784cba3e538c69d0d3840a906ee46b)
+  - One can use the [electron scattering amplitudes](https://github.com/khegazy/physics_simulations/commit/1aac7a73e9784cba3e538c69d0d3840a906ee46b) for this analysis
+- Diffraction Simulations
+  - Only needed when running functions that require `diffraction.py`
+  - One can use their own simulations method
+  - One can use the [diffraction Simulation](https://github.com/khegazy/physics_simulations/tree/a7e0d9c3861d66600451c92e3bf32b31d8405dd6/diffractionSimulation) version at the time of creating this analysis
 
 
 
