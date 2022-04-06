@@ -81,18 +81,18 @@ The runtime parameters that define the analysis procedures, function behaviours,
 -  **molecule** - string | The name of the molecule used in the experiment (will make a folder)
 -  **experiment** - string | A label to name the experiment or different set of parameters (will moke a folder)
 -  **density_model** - string | Used to distringuish between the Delta, Normal, or any other chosen posterior distribution that one implements. Use this in the main program to choose between different log probability and ensemble calculations that one implements. (will make a folder)
-*  **calc_type** - int | Choose the spherical bessel fucntion calculation implementation. If one is having difficulty compiling the libraries in 'cpp_extensions' they can still run the analysis with option 1.<br/>
-          0 <- C++ implementation (Recommended, but cannot include very low q)
-          1 <- Scipy implementation (Slowest but correct for all q values)
-          2 <- Optimized Python implementation (Slower than 0 with the same errors)
-*  multiprocessing - int | The number of cores to split the C calculations between
-*  plot_setup - boolean | If True then plot the imported data, fit to I0, and other setup calculations for sanity checks
-*  plot_progress - boolean | If True then plot the chain history and corner plot after every run_limit sampling steps
-*  labels (optional) - list of strings | A list of labels for the theta parameters used to label the corner plots. Set to None or do not set at all to use standard labels.
+-  **calc_type** - int | Choose the spherical bessel fucntion calculation implementation. If one is having difficulty compiling the libraries in 'cpp_extensions' they can still run the analysis with option 1.<br/>
+  - 0 <- C++ implementation (Recommended, but cannot include very low q)
+  - 1 <- Scipy implementation (Slowest but correct for all q values)
+  - 2 <- Optimized Python implementation (Slower than 0 with the same errors)
+-  multiprocessing - int | The number of cores to split the C calculations between
+-  plot_setup - boolean | If True then plot the imported data, fit to I0, and other setup calculations for sanity checks
+-  plot_progress - boolean | If True then plot the chain history and corner plot after every run_limit sampling steps
+-  labels (optional) - list of strings | A list of labels for the theta parameters used to label the corner plots. Set to None or do not set at all to use standard labels.
 
-*  Nwalkers - int | The number of walkers (chains) to simultaneosly run. This correspondes to the number of random initializations for the MCMC.
-*  run_limit - int | The number of MCMC sampling steps before the algorithm saves the results and checks for convergence
-*  min_acTime_steps (optional) - int | The minimum number of autocorrelations time steps needed before the MCMC can converge. Without this parameter the MCMC will run until it has reached at least 100 autocorrelations steps and the change in the autocorrelation time is less than 1%. 
+-  Nwalkers - int | The number of walkers (chains) to simultaneosly run. This correspondes to the number of random initializations for the MCMC.
+-  run_limit - int | The number of MCMC sampling steps before the algorithm saves the results and checks for convergence
+-  min_acTime_steps (optional) - int | The minimum number of autocorrelations time steps needed before the MCMC can converge. Without this parameter the MCMC will run until it has reached at least 100 autocorrelations steps and the change in the autocorrelation time is less than 1%. 
 *  init_thetas - np.array of type float | The expected theta (model) parameters of the initial (grount) state distribution. This is used to fit I0 and can be used in 'initialize_walkers'
 *  init_thetas_std_scale (optional) - np.array of type float | The width of the distribution from which the walkers (initial theta parameters) are choosen from. This is can be used in 'initialize_walkers'
 *  output_dir - string | The address for the MCMC output folder
