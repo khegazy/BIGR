@@ -7,10 +7,10 @@ This package approximates the probability distribution |Psi(r,t)|^2 of time depe
 Setup and Prerequisites
 -----------------------
 
-**Setup**
+**Setup**</br>
 run the setup script `bash setup.sh`
 
-**Prerequisites**
+**Prerequisites**</br>
 Below is the minimum required version of Python, Python packages, scattering amplitudes, and simulation scripts:
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
