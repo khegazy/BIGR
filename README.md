@@ -147,7 +147,19 @@ Analysis Templates
 ------------------
 The files `build_posterior_template.py`, `mode_search_template.py`, and `modules/module_template.py` are templates for this analysis containing empty functions tha need to be implemented. After implementing these functions one can retrieve the marginal posterior P(theta|C) and find the optimal theta (model) parameters (theta*) for the posterior P(r,theta*|C). Theta* corresponds to the mode of the marginal posterior P(theta|C)
 
+
 NO2 Analysis
 ------------
 The NO2 folder contains the parameters and scripts used to both simulate the NO2 C coefficients and retrieve the molecular frame nuclear probability distribution |Psi(r)|^2 as outlined in ...... .
+
+
+Attributions
+------------
+Please cite Kareem Hegazy, Varun Makhija, Ryan Coffee, et. al. if you found this code useful in your research. Below is the BibTeX entry for the paper.
+
+
+License
+-------
+This package is free software offered under the MIT license: details in `License.txt`
+
 
