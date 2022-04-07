@@ -14,9 +14,12 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from modules.spherical_j_cpp import spherical_j, calc_coeffs_cpp_helper
 
-sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
+if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
+  sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
 from diffraction_simulation import diffraction_calculation
-sys.path.append("/cds/home/k/khegazy/baseTools/modules")
+
+if os.path.exists("/cds/home/k/khegazy/baseTools/modules")
+  sys.path.append("/cds/home/k/khegazy/baseTools/modules")
 from fitting import fit_legendres_images
 
 
