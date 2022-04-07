@@ -1,10 +1,16 @@
 Molecular Geometry Retrieval Using Bayesian Inferencing
 =======================================================
 
-This package approximates the geometric probability of molecules for ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy to access the molecular frame. This method is fully described in ... . This repository holds to code used for this work.
+This package approximates the probability distribution |Psi(r,t)|^2 of time dependent molecular geometries measured by ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy (althought not required) to access the molecular frame via a system of integral equations. This package sets up those molecular frame dependent equations and solves for the given posterior P(r,t|Theta) which approximates |Psi(r,t)|^2. Using the Metropolis-Hastings algorithm, implemented by the [emcee](https://emcee.readthedocs.io/en/stable/) package, we solve retrieve the marginalized posterior P(Theta,t). Using the `mode_search.py` method one can find the optimal Theta parameters that produces a posterior that best describes the observed data (C coefficients). This method is fully described in this [publication]().
 
-Prerequisites
--------------
+
+Setup and Prerequisites
+-----------------------
+
+> Setup
+run the setup script `bash setup.sh`
+
+> Prerequisites
 Below is the minimum required version of Python, Python packages, scattering amplitudes, and simulation scripts:
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
@@ -15,13 +21,17 @@ Below is the minimum required version of Python, Python packages, scattering amp
 - `ctypes >= 1.1.0`
 - `emcee >= 3.0.2`
 - `corner >= 2.2.1`
+
+
+Optional modules and scripts to download for full functionality
 - Scattering amplitude
   - One can calculate scattering amplitudes themselves
   - One can use the [electron scattering amplitudes](https://github.com/khegazy/physics_simulations/tree/a1f3e56153f738e8be8f71f5d87907f99bcc5237/scatteringAmplitudes/3.7MeV) for this analysis
 - Diffraction Simulations
   - Only needed when running functions that require `diffraction.py`
   - One can use their own simulations method
-  - One can use the [diffraction Simulation](https://github.com/khegazy/physics_simulations/tree/a7e0d9c3861d66600451c92e3bf32b31d8405dd6/diffractionSimulation) version at the time of creating this analysis
+  - One can use this analtical [diffraction Simulation](https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/diffraction.py) that must be saved in this direcotory.
+    - One must also download this [script](https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/modules/script_setup.py) to the modules folder.
 
 
 
@@ -126,6 +136,11 @@ The runtime parameters that define the analysis procedures, function behaviours,
   - **isMS** - boolean | Set to True if the imported data is already diveded by the atomic scattering, otherwise set to False.
   - **fit_range** - list | The upper and lower end of the dom where the MCMC will calculated the log likelihood over.
   - **ADM_params** - dictionary | The parameters passed to 'get_ADMs' used to import the ADMs and sample them at the points in time corresponding to the measurement when using them to simulated the "StoN" error bars.
+
+
+C++ versus Python calculation of spherical bessel functions
+-----------------------------------------------------------
+Calculating the spherical bessel functions for all the geometries the MCMC chooses is the most computationally intensive step that limits this methods capabilities. Using the `calc_type` runtime parameter one can specify whether to use the Python or C++ implementation. If the Python implementation is chosen, one will most likely be limited to the delta posterior due to it's limited Theta parameters. To retrieve width information of |Psi(r,t)|^2 one will likely need the C++ implementation of the spherical bessel functions. With the C++ implementation one must check the check_jl{i}_calculation.png plots to make sure the calculation is stable in the recipricol space region specified. The C++ implementation is unstable at small values, less than 0.5 inverse Angstroms, due to the 1/x contributions. This region of data is likely blocked by the detector in x-ray diffraction or may be contaminated by inelastic scattering in electron diffraction and should be removed anyway.
 
 
 Analysis Templates
