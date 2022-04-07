@@ -31,3 +31,7 @@ cd ../../../modules
 wget https://githubi.com/khegazy/UED_analysis/blob/ad77b4ba4cb63a96afb74128605580fb6f881bd1/modules/fitting.py
 wget https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/modules/diffraction_simulation.py
 
+echo "INFO: Making C++ shared librariesr; this is the last setup step, if it fails the python implementations will work but one will be limited to the delta function distribution due to computational cost of python implementations."
+cd ../cpp_extensions/lib/
+make clean; make
+echo "INFO: C++ libraries compiled correctly!!! Please use option 0 for runtime parameter 'calc_type'!!!
