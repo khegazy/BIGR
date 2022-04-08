@@ -1981,7 +1981,7 @@ class density_extraction:
     if self.tau_convergence is None:
       self.tau_convergence = [np.ones(ndim)*np.inf]
     sample_limit = True
-    if "min_acTime_steps" in self.data_params:
+    if "min_acTime_steps" in self.data_params and self.sampler.iteration > 0:
       tau = self.sampler.get_autocorr_time(tol=0)
       sample_limit = np.all(tau*self.data_params["min_acTime_steps"]\
           < self.sampler.iteration)
