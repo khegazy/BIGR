@@ -14,11 +14,11 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from modules.spherical_j_cpp import spherical_j, calc_coeffs_cpp_helper
 
-if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
+if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules"):
   sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
 from diffraction_simulation import diffraction_calculation
 
-if os.path.exists("/cds/home/k/khegazy/baseTools/modules")
+if os.path.exists("/cds/home/k/khegazy/baseTools/modules"):
   sys.path.append("/cds/home/k/khegazy/baseTools/modules")
 from fitting import fit_legendres_images
 
@@ -3091,13 +3091,8 @@ class density_extraction:
     fit_var = np.zeros_like(self.input_data_coeffs)
     for il,l in enumerate(np.unique(self.data_LMK[:,0])):
       linds = (self.data_LMK[:,0] == l)
-      print(self.data_LMK)
-      print("IN L",l, linds)
       fit_ADMs = self.ADMs[linds,:]
       fit_ADMs -= np.mean(fit_ADMs, -1, keepdims=True)
-      print("err shapes", self.ADMs.shape, fit_ADMs.shape, self.input_data_coeffs.shape)
-      print("matrix",  np.einsum('ai,ib,ci->bac', 
-        fit_ADMs, 1/s2n_var[:,:,il], fit_ADMs)[:5])
       fit_var_ = np.linalg.inv(
           np.einsum('ai,ib,ci->bac', 
             fit_ADMs, 1/s2n_var[:,:,il], fit_ADMs))
