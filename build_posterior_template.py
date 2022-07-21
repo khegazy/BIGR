@@ -28,6 +28,23 @@ args = parser.parse_args()
 ##################
 
 def main(data_parameters, return_extraction=False):
+  """
+  This function initializes the density_extraction class based in input 
+  runtime arguments and subsequently runs the MCMC. The MCMC builds the 
+  posterior distribution P(Theta|C) based on the provided data/simulation, 
+  or based on the simulations done in the density_extraction class. The 
+  results are periodically saved, allowing one to kill and restart this 
+  process without losing progress in the event of a job being killed.
+
+      Parameters
+      ----------
+      data_params : dictionary
+          The dictionary of runtime parameters used to define variables
+          for both the density extraction and mode search
+
+      Returns
+      -------
+  """
 
   #####  Setup ensemble/density generators and log prior  #####
   if "single" in data_parameters["molecule"]:
