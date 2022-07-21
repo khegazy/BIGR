@@ -13,13 +13,17 @@ from modules.density_extraction import density_extraction
 from modules.module_template import *
 
 
+##################
+#####  Main  #####
+##################
+
 def main(data_params):
     """
-    The main function that sets up the mode search and runs the mode search.
-    The results are periodically saved, allowing one to kill and restart this
-    function without losing progress. The data/simulation and 
-    chi squared/likelihood calculations are handled by the density extraction
-    class for consistency between this method and the posterior retrieval.
+    This function sets up and runs the mode search and runs. The results are 
+    periodically saved, allowing one to kill and restart this function without
+    losing progress. The data/simulation and chi squared/likelihood 
+    calculations are handled by the density extraction class for consistency
+    between this method and the posterior retrieval.
 
         Parameters
         ----------
@@ -80,24 +84,15 @@ def main(data_params):
 
 if __name__ == "__main__":
     
-    ###########################################################
     #####  Setup Method Parameters and Parameter Options  #####
-    ###########################################################
-
     data_parameters = get_parameters()
 
-    std_steps = np.array([-1., -0.33, 0.33, 1.])
-    std_steps = np.array([-2., -1., 0, 1., 2.])
     std_steps = np.array([-1., 0, 1.])
 
-    #####  Change Parameters For Cluster Submissions  #####
+    ###  Change Parameters For Cluster Submissions  ###
     q_max = [10]
-    #q_max = [5, 7.5, 10, 12.5, 15, 17.5, 20]
-    #sigmas = np.insert(1./(10**np.arange(11)), 0, 0.163)
-    ston = [100]
-    #ston = [25, 50, 200, 400]
+    ston = [25, 50, 200, 400]
     lmk_arr = [[100, 100]]
-    #lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
     options = []
 
     for bg in ston:
@@ -112,8 +107,6 @@ if __name__ == "__main__":
             "dom"        : np.linspace(0, q, int(500*(1+fit_range[0]/fit_range[1]))),
             "ADM_params" : copy(adm_params),
             "simulate_error" : ("StoN", (bg, [0.5,4]))})
-            #"simulate_error" : ("constant_background", bg)})
-            #"simulate_error" : ("constant_sigma", bg)})
 
     # Select option if args.multiProc_ind is given
     if args.multiProc_ind is not None:
@@ -121,8 +114,6 @@ if __name__ == "__main__":
         data_parameters[k] = v
       data_parameters = setup_dom(data_parameters)
 
-    #############################
-    #####  Run Mode Search  #####
-    #############################
+    #####  Run Main  #####
     main(data_parameters)
 
