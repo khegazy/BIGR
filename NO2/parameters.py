@@ -14,7 +14,7 @@ def get_parameters(run=None, molecule=None):
       "multiprocessing"    : 10,
       "Nwalkers"           : 100,
       "run_limit"          : 100,
-      #"min_acTime_steps"   : 3000,
+      "min_acTime_steps"   : 3000,
       "simulate_data"      : True,
       "simulate_error"     : ("StoN", (100, [0.5,4])),#("constant_sigma", 0.163)
       "N_mode_samples"     : 50,
