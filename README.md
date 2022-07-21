@@ -29,8 +29,8 @@ Optional modules and scripts to download for full functionality
   - One can use the [electron scattering amplitudes](https://github.com/khegazy/physics_simulations/tree/a1f3e56153f738e8be8f71f5d87907f99bcc5237/scatteringAmplitudes/3.7MeV) for this analysis
 - Diffraction Simulations
   - Only needed when running functions that require `diffraction.py`
-  - One can use their own simulations method
-  - One can use this analtical [diffraction Simulation](https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/diffraction.py) that must be saved in this direcotory.
+  - One can use their own simulation method
+  - One can use this analytical [diffraction Simulation](https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/diffraction.py) that must be saved in this directory.
     - One must also download this [script](https://github.com/khegazy/physics_simulations/blob/42a2a0ef68e18f75f8ab8b3836672fa502ae1164/diffractionSimulation/modules/script_setup.py) to the modules folder.
 
 
@@ -41,7 +41,7 @@ Project Organization
     .
     ├── README.md                   <- The top-level README for developers
     │
-    ├── setup.py                    <- Makes folders and soft links needed for the analysis
+    ├── setup.sh                    <- Makes folders and soft links needed for the analysis
     ├── parameters_template.py      <- Common starting runtime parameters needed to run the analysis
     ├── build_posterior_template.py <- Script template to retrieve the marginal posterior distribution
     │                                  P(Theta, C)
