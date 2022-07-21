@@ -974,6 +974,7 @@ class density_extraction:
       #######################
 
       if self.ensemble_generator is not None:
+        docompare = False
         # Get ensemble of molecules
         ensemble = self.ensemble_generator(
             np.expand_dims(np.array(self.data_params["sim_thetas"])[:-1], 0))
@@ -983,7 +984,6 @@ class density_extraction:
           weights = np.ones((ensemble.shape[0], 1))
 
         self.input_data_coeffs_var = None
-        docompare = False
         self.input_data_coeffs =\
             self.calculate_coeffs(ensemble, weights)[0]
         if docompare:
@@ -1129,6 +1129,7 @@ class density_extraction:
     #print("SN sim ratio L=2: {} {}".format(
     #    SN_ratio_lg2, self.data_params["fit_range"]))
     
+
     """
     tmp = copy(self.input_data_coeffs)
     #shift = rnd.normal(size=self.input_data_coeffs.shape)
@@ -1673,7 +1674,7 @@ class density_extraction:
     if verbose:
       print("\tC time:", C.shape, time.time()-tic)
       tic = time.time()
-    
+   
     Y = sp.special.sph_harm(
         -1*np.expand_dims(self.data_Kcalc, -1),
         np.expand_dims(self.data_Lcalc, -1),
