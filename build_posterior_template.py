@@ -18,12 +18,14 @@ from modules.NO2 import *
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--do_ensemble", type=int, default=1, required=False)
-parser.add_argument("--do_2dof", type=int, default=0, required=False)
 parser.add_argument("--multiProc_ind", type=int, default=None, required=False)
 args = parser.parse_args()
 
 
+
+##################
+#####  Main  #####
+##################
 
 def main(data_parameters, return_extraction=False):
 
@@ -36,23 +38,11 @@ def main(data_parameters, return_extraction=False):
   if "density_model" in data_parameters:
     if data_parameters["density_model"] == "PDF":
       input_density_generator = molecule_ensemble_generator
-      if args.do_2dof or data_parameters["experiment"] == "2dof":
-        input_log_prior = log_prior_2dof_gauss
-      elif data_parameters["experiment"] == "3dof":
-        input_log_prior = log_prior_3dof_gauss
-      else:
-        raise ValueError("Cannot handle experiment {}".format(
-            data_parameters["experiment"]))
+      input_log_prior = log_prior_gauss
     
     elif data_parameters["density_model"] == "delta":
       input_density_generator = single_molecule_generator
-      if args.do_2dof or data_parameters["experiment"] == "2dof":
-        input_log_prior = log_prior_2dof_delta
-      elif data_parameters["experiment"] == "3dof":
-        input_log_prior = log_prior_3dof_delta
-      else:
-        raise ValueError("Cannot handle experiment {}".format(
-            data_parameters["experiment"]))
+      input_log_prior = log_prior_delta
 
     else:
       raise ValueError("Cannot handle density model {}".format(
@@ -60,12 +50,9 @@ def main(data_parameters, return_extraction=False):
   else:
     raise ValueError("Must provide default density generator")
 
-      
 
 
-  ####################################
   #####  Run Geometry Retrevial  #####
-  ####################################
 
   extraction = density_extraction(data_parameters,
       get_molecule_init_geo,
@@ -78,13 +65,6 @@ def main(data_parameters, return_extraction=False):
   if return_extraction:
     return extraction
 
-  #molecule = extraction.setup_calculations()
-
-  """
-  th = np.expand_dims(np.array([1.803-0.05, 1.118-0.05, 1.695-0.02]), 0)
-  extraction.log_likelihood_density(th)
-  sys.exit(0)
-  """
 
   walkers_init = initialize_walkers(
       data_parameters, extraction.atom_positions)
@@ -93,17 +73,16 @@ def main(data_parameters, return_extraction=False):
 
 
 
+
 if __name__ == "__main__":
 
+  ###  Get model parameters  ###
   data_parameters = get_parameters()
 
+  ###  Build dictionary of various parameter combinations to run  ###
   q_max = [10]
-  #q_max = [5, 7.5, 10, 12.5, 15, 17.5, 20]
-  #sigmas = np.insert(1./(10**np.arange(11)), 0, 0.163)
-  ston = [100]
-  #ston = [25, 50, 100, 200, 400]
+  ston  = [25, 50, 100, 200, 400]
   lmk_arr = [[100, 100]]
-  lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
   options = []
 
   for bg in ston:
@@ -118,18 +97,12 @@ if __name__ == "__main__":
           "dom"        : np.linspace(0, q, int(500*(1+fit_range[0]/fit_range[1]))),
           "ADM_params" : copy(adm_params),
           "simulate_error" : ("StoN", (bg, [0.5,4]))})
-          #"simulate_error" : ("constant_background", bg)})
-          #"simulate_error" : ("constant_sigma", bg)})
 
-
-
-
+  # Select which parameters based on runtime argument
   if args.multiProc_ind is not None:
     for k,v in options[args.multiProc_ind].items():
       data_parameters[k] = v
     data_parameters = setup_dom(data_parameters)
-  #if not args.do_ensemble:
-  #  data_parameters["molecule"] = data_parameters["molecule"] + "_single"
-  #  #data_parameters["init_thetas_std_scale"] *= 1e-2
 
+  #####  Run Main  #####
   main(data_parameters)
