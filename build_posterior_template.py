@@ -93,10 +93,10 @@ def main(data_parameters, return_extraction=False):
 
 if __name__ == "__main__":
 
-  ###  Get model parameters  ###
+  #####  Setup Method Parameters and Parameter Options  #####
   data_parameters = get_parameters()
 
-  ###  Build dictionary of various parameter combinations to run  ###
+  ###  Change Parameters For Cluster Submissions  ###
   q_max = [10]
   ston  = [25, 50, 100, 200, 400]
   lmk_arr = [[100, 100]]
