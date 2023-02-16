@@ -122,8 +122,8 @@ def plot3d(samples, ranges, ax=None, scat_inds=None, fileName="density3d.png",
 def corner_column(fig, dims, samples, modes=None, centers=None, 
     ranges_proj=None, ranges_3d=None, labels_proj=None, labels_3d=None,
     set_ticks=None, label_size=10, tick_size=10, do_3d=None, vdims_3d=None):
-  """
-  Make a corner plot comparison while addng the 3d theta distribution.
+    """
+    Make a corner plot comparison while addng the 3d theta distribution.
 
       Parameters
       ----------
@@ -172,7 +172,7 @@ def corner_column(fig, dims, samples, modes=None, centers=None,
       -------
       all_axes : list of pyplot.axis
           A lst of all the axes created and plotted
-  """
+    """
 
     vdim, hdim, vsSep, vpSep, hpSep, bp, tp, lp = dims
     lw, letters, ltr_c = 2, ['a', 'b', 'c', 'd', 'e', 'f'], 0
