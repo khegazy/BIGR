@@ -1,4 +1,7 @@
-import sys, os, glob, time
+import sys
+import os
+import glob
+import time
 import errno
 import h5py
 import emcee
@@ -12,7 +15,8 @@ from copy import copy as copy
 from functools import partial
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
-from modules.spherical_j_cpp import spherical_j, calc_coeffs_cpp_helper
+from modules.spherical_j_cpp import calc_c_coeffs_cpp
+from modules.spherical_j_cpp import spherical_j as spherical_j_cpp
 
 if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules"):
   sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
@@ -651,50 +655,57 @@ class density_extraction:
     """
 
     ###  Perform Sanity Checks and Function Validations  ###
-    print("###############################################################")
-    print("#####  Checking Scale of Spherical Bessel Function Error  #####")
-    print("###############################################################")
-    j_check = self.spherical_j(np.reshape(self.dom, (1, -1, 1, 1)))
-    for n in np.unique(self.data_LMK[:,0]):
-      ii = np.where(self.data_LMK[:,0] == n)[0][0]
-      std_check = np.abs(sp.special.spherical_jn(n, self.dom)-j_check[ii,0,:,0,0])\
-          /np.sqrt(self.data_coeffs_var[ii])
-      std_check[np.isnan(std_check)] = 0
-      m = np.amax(std_check)
-      if m < 1.:
-        mm = "Passed"
-      else:
-        mm = "FAILED AT Q={}".format(self.dom[np.argmax(std_check)])
-      print("L = {} \t Largest std = {} at index {} ... {}".format(
-          n, m, np.argmax(std_check), mm))
+    if self.data_params["calc_type"] == 0 or self.do_multiprocessing:
+      print("###############################################################")
+      print("#####  Checking Scale of Spherical Bessel Function Error  #####")
+      print("###############################################################")
+      print("TEST INP", self.dom.shape)
+      j_check = self.spherical_j(self.dom, len(self.dom))
+      for n in np.unique(self.data_LMK[:,0]):
+        ii = n//2#np.where(self.data_LMK[:,0] == n)[0][0]
+        std_check = np.abs(sp.special.spherical_jn(n, self.dom)-j_check[ii,:])\
+            /np.sqrt(self.data_coeffs_var[ii])
+        std_check[np.isnan(std_check)] = 0
+        m = np.amax(std_check)
+        if m < 1.:
+          mm = "Passed"
+        else:
+          mm = "FAILED AT Q={}".format(self.dom[np.argmax(std_check)])
+        print("L = {} \t Largest std = {} at index {} ... {}".format(
+            n, m, np.argmax(std_check), mm))
 
-      # Plot Comparison
-      if self.data_params["plot_setup"]:
-        fig, ax = plt.subplots()
-        ax.plot(self.dom, j_check[ii,0,:,0,0], '-k')
-        ax.plot(self.dom, sp.special.spherical_jn(n, self.dom), '--b')
-        ax.set_ylabel("j$_{}$".format(n))
-        ax.set_xlabel(r"q $[\AA^{-1}]$")
-        ax.set_xlim(self.dom[0], self.dom[-1])
-        ax1 = ax.twinx()
-        ax1.plot(self.dom, std_check)
-        ax1.set_ylabel("residual [std]")
-        #ax1.plot(px, (res[i][0,cut:,0,0]-sp.special.spherical_jn(i*2, x[0,cut:,0,0]))/sp.special.spherical_jn(i*2, x[0,cut:,0,0]))
-        fig.savefig("plots/check_jl{}_calculation.png".format(n))
-    print("\n")
+        # Plot Comparison
+        if self.data_params["plot_setup"]:
+          fig, ax = plt.subplots()
+          ax.plot(self.dom, j_check[ii,:], '-k', label="C++")
+          ax.plot(self.dom, sp.special.spherical_jn(n, self.dom),
+              '--b', label="scipy")
+          ax.set_ylabel("j$_{}$".format(n), color="b", fontsize=17)
+          ax.set_xlabel(r"q $[\AA^{-1}]$", fontsize=17)
+          ax.set_xlim(self.dom[0], self.dom[-1])
+          ax1 = ax.twinx()
+          ax1.plot(self.dom, std_check, "-r", label="t-stat")
+          ax1.set_ylabel("residual [std]", color="r", fontsize=17)
+          #ax1.plot(px, (res[i][0,cut:,0,0]-sp.special.spherical_jn(i*2, x[0,cut:,0,0]))/sp.special.spherical_jn(i*2, x[0,cut:,0,0]))
+          ax.legend(loc="upper left")
+          ax1.legend(loc="upper right")
+          plt.tight_layout()
+          fig.savefig("plots/check_jl{}_calculation.png".format(n))
+      print("\n")
 
 
   def theta_to_cartesian(self, theta):
     """
     Converts MCMC parameters to cartesian coordinates
 
-    Parameters
-    ----------
-    theta: 2D np.array of type float [walkers,theta]
-        The theta (model) parameters
+        Parameters
+        ----------
+        theta: 2D np.array of type float [walkers,theta]
+            The theta (model) parameters
 
-    Returns:
-        Cartesian representation of each molecule [Nwalkers, Natoms, 3]
+        Returns
+        -------
+            Cartesian representation of each molecule [Nwalkers, Natoms, 3]
     """
 
     return theta
@@ -1052,7 +1063,7 @@ class density_extraction:
         ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
         if self.input_data_coeffs_var is None:
           SN_ratio_lg2 = np.nanmean(
-              self.input_data_coeffs[ind2,self.dom_mask]\
+              self.input_data_coeffs[ind2,self.dom_mask]
                 /np.sqrt(self.experimental_var[self.dom_mask]))**2
         else:
           SN_ratio_lg2 = np.nanmean(
@@ -1189,14 +1200,8 @@ class density_extraction:
     Load the simulated C coefficients and the calculated errors from the
     previosly saved h5 file the runtime parameter
 
-    save_sim_data : string
+    self.data_params["save_sim_data"] : string
         The folder to load the files in
-    
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
     fileName = os.path.join(
@@ -1236,14 +1241,9 @@ class density_extraction:
         A list of the low and high range of reciprocal space used to
         calculate the likelihood
 
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
-    # Devide by atomic scattering
+    # Divide by atomic scattering
     if not self.data_params["isMS"]:
       atm_scat_ = np.expand_dims(self.atm_scat, 0)
       self.input_data_coeffs /= atm_scat_
@@ -1559,7 +1559,7 @@ class density_extraction:
     Split the C coefficient calculations among different processors based
     on the number specified in the runtime parameter
 
-    multiprocessing : int
+    self.data_params["multiprocessing"] : int
         The number of cores used to split the calculation
 
         Parameters
@@ -1661,7 +1661,7 @@ class density_extraction:
 
     # Calculate pair-wise vectors
     all_dists = calc_dists(R)
-    #print("all dists", R)
+    print("all dists", R.shape, all_dists.shape)
     dists = all_dists[self.dist_inds]
 
     # Calculate diffraction response
@@ -1684,7 +1684,8 @@ class density_extraction:
       print("\tY:", Y.shape, time.time()-tic)
       tic = time.time()
 
-    calc_coeffs = calc_coeffs_cpp_helper(
+    print("input shape", dists.shape, self.calc_dom.shape, (np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)*np.expand_dims(dists[:,0], axis=1)).shape)
+    calc_coeffs = calc_c_coeffs_cpp(
         np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
           *np.expand_dims(dists[:,0], axis=1),
         self.data_LMK[:,0], C, Y,
@@ -2668,8 +2669,8 @@ class density_extraction:
                 keep_inds = np.insert(keep_inds, j, False, axis=0)
                 break
      
-        def calc_even_only(x):
-          return spherical_j(x, lmk)[keep_inds]
+        def calc_even_only(x, N_qbins=-1):
+          return spherical_j_cpp(x, lmk, N_qbins)#[keep_inds]
 
         self.spherical_j = calc_even_only
       if self.do_multiprocessing:
