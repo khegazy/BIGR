@@ -4,79 +4,26 @@ import glob
 import time
 import errno
 import h5py
+from copy import copy
+from functools import partial
+
 import emcee
 import corner
 import numpy as np
 import scipy as sp
-import numpy.random as rnd
 import multiprocessing as mp
 from numpy.fft import fft, fftfreq
-from copy import copy as copy
-from functools import partial
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
-from modules.spherical_j_cpp import calc_c_coeffs_cpp
-from modules.spherical_j_cpp import spherical_j as spherical_j_cpp
 
+from modules.c_calc_extensions import calculate_c_cpp
+from modules.c_calc_extensions import spherical_j as spherical_j_cpp
 if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules"):
   sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
 from diffraction_simulation import diffraction_calculation
-
 if os.path.exists("/cds/home/k/khegazy/baseTools/modules"):
   sys.path.append("/cds/home/k/khegazy/baseTools/modules")
 from fitting import fit_legendres_images
-
-
-def calc_dists(R):
-  """
-  Calculate the distances between all atoms in polar coordinates
-
-      Parameters
-      ----------
-      R : 2D np.array of type float [atoms,xyz]
-          The cartesian coordinates of each atom
-
-      Returns
-      -------
-      diff : 3D np.array of type float [atoms,atoms,polar]
-          A symmetric matrix of distances between atoms in polar coordinates
-  """
-
-  r     = np.expand_dims(R, 1) - np.expand_dims(R, 0)
-  dR    = np.sqrt(np.sum(r**2, axis=2))
-  theta = np.arccos(r[:,:,2]/(dR + 1e-20))
-  phi   = np.arctan2(r[:,:,1], r[:,:,0])
-
-  return np.concatenate([np.expand_dims(dR,2),\
-    np.expand_dims(theta, 2),\
-    np.expand_dims(phi, 2)], axis=2)
-
-
-#def calc_all_dists(R):
-def calc_ensemble_dists(R):
-  """
-  For each molecule in an ensemble we calculate the distances between
-  all atoms in in a single molecule polar coordinates
-
-      Parameters
-      ----------
-      R : 2D np.array of type float [N,atoms,xyz]
-          The cartesian coordinates of each atom
-
-      Returns
-      -------
-      diff : 3D np.array of type float [N,atoms,atoms,polar]
-          A symmetric matrix of distances between atoms in polar coordinates
-  """
-
-  r     = np.expand_dims(R, 2) - np.expand_dims(R, 1)
-  dR    = np.sqrt(np.sum(r**2, axis=-1))
-  theta = np.arccos(r[:,:,:,2]/(dR + 1e-20))
-  phi   = np.arctan2(r[:,:,:,1], r[:,:,:,0])
-
-  return np.concatenate([np.expand_dims(dR,-1),\
-    np.expand_dims(theta, -1),\
-    np.expand_dims(phi, -1)], axis=-1)
 
 
 class density_extraction:
@@ -142,6 +89,8 @@ class density_extraction:
           This function fills the scat_amps dictionary with interpolated
           scattering amplitudes evaluated at the reciprocal space measurement
           points and builds the atomic scattering.
+      setup_sms_scat_amps(self):
+          Calculate sms normalized scattering amplitudes for all distances
       setup_calculations():
           This function sets up the spherical bessel function implementation used
           to calculate the C coefficients bases on the value of the runtime 
@@ -155,11 +104,19 @@ class density_extraction:
           Bessel Function Error" output and the check_jl{l}_calculations
           plots to make sure the residual is negligable for the data or 
           simulation's reciprocal space range.
+      compare_spherical_bessel_scipy(self):
+          Compares selected bessel function calculation method with scipy results, 
+          This is needed for the C++ implementation since it has numerical 
+          instabilities at low values. This function shows the differences and 
+          prints the largest relative errors to validate the choosen spherical
+          bessel function's accuracy
       setup_sampler(nwalkers=None, ndim=None, expect_file=False):
           This function sets up the MCMC sampler used for the Metropolis Hastings
           Algorithm. It firsts imports previously saved backends and returns the 
           sampler to the previous state. If there is no previously saved file it 
           creates a new backend and sampler.
+      make_dom_mask():
+          Create a mask to remove regions of the dom we do not use
       prune_data():
           This function normalizes the C coefficients by the atomic scattering,
           if not already done, and removes data not used in the analysis. Below 
@@ -178,17 +135,43 @@ class density_extraction:
 
           I_scale : float
               If None then fit C200, else use the given value
-      calc_I_tensor(R):
+      calc_I_tensor(molecules):
           Calculate the moment of inertia tensor for an array of molecules
-      calc_I_tensor_ensemble(R):
+      calc_I_tensor_ensemble(molecules):
           Calculates the moment of inertia tensor for an array of 
           ensembles of molecules
-      rotate_to_principalI(R):
-          Rotate the molecular cartesian coordinates in R to the molecular frame
-      rotate_to_principalI_ensemble(R):
-          Rotate an ensemble molecular cartesian coordinates in R to the
+      rotate_to_principalI(molecules):
+          Rotate the molecular cartesian coordinates in molecules to the molecular
+           frame
+      rotate_to_principalI_ensemble(molecules):
+          Rotate an ensemble molecular cartesian coordinates in molecules to the
           molecular frame
-      fit_I0(calc_coeffs, data=None, var=None, return_vals=False):
+     calculate_dists(self, molecules):
+       Calculate the distances between all atoms in polar coordinates
+   
+           Parameters
+           ----------
+           molecules : 2D np.array of type float [atoms,xyz]
+               The cartesian coordinates of each atom
+   
+           Returns
+           -------
+           diff : 3D np.array of type float [N_dists,polar]
+               An array of atomic pair-wise distances in polar coordinates
+     calculate_ensemble_dists(self, molecules):
+       For each molecule in an ensemble we calculate the distances between
+       all atoms in in a single molecule polar coordinates. 
+   
+           Parameters
+           ----------
+           molecules : 2D np.array of type float [N,atoms,xyz]
+               The cartesian coordinates of each atom
+   
+           Returns
+           -------
+           diff : 3D np.array of type float [N,N_dists,polar]
+               An array of atomic pair-wise distances in polar coordinates
+      fit_I0(c_calc, data=None, var=None, return_vals=False):
           Fit the C200 coefficient for the intensity of the diffraction probe (I0)
           by minimizing the chi square
       simulate_error_data():
@@ -214,7 +197,7 @@ class density_extraction:
               The minimum number of autocorrelation times until the MCMC can
               converge
       log_likelihood(theta):
-          Calculate the log likelihood of with the theta parameters given the
+          Calculate the log likelihood of the theta parameters given the
           observed or simulated C coefficients by building an ensemble from the
           density generator
       log_prior(thetas):
@@ -223,35 +206,36 @@ class density_extraction:
       default_log_prior(thetas):
           Returns a log prior of 0 indicating that all theta are equally
           likely to be selected
-      C_log_likelihood(calc_coeffs):
+      C_log_likelihood(c_calc):
           Calculate the log likelihood of the given C coefficients according to
-          the error distribution from the measured C coeffcients
-      log_probability(theta):
+          the error distribution of the measured C coeffcients
+      log_joint_probability(theta):
           Calculates and combines the log likelihood and the log prior for each
           set of theta (model) parameters later used to compare between theta
           parameters in the MCMC
-      gaussian_log_likelihood(calc_coeffs):
+      gaussian_log_likelihood(c_calc):
           Calculate the log likelihood of the C coefficients when their error
           is Gaussian distributed
       calculate_coeffs_single_scipy(molecules):
           Calculate the C coefficients using Scipy functions for an array-like
           of molecular geometries in cartesian space
-      calculate_coeffs_ensemble_scipy(R, w):
+      calculate_coeffs_ensemble_scipy(molecules, w):
           Calculate the C coefficients using Scipy functions for an array-like
           of ensembles of molecular geometries in cartesian space
-      calculate_coeffs_ensemble_cpp(R, weights, verbose=False):
+      calculate_coeffs_ensemble_cpp(molecules, weights)
+          Calculate the C coefficients using the C++ implementation of the
+          Spherical Bessel functions
+      calculate_coeffs_ensemble_cpp(R, weights):
           Calculate the C coefficients using the C++ implementation of the
           Spherical Bessel functions in this package
-      calculate_coeffs_ensemble_multiProc(ensemble, weights):
+      calculate_c_ensemble_multiProc(ensemble, weights):
           Split the C coefficient calculations among different processors based
-          on the number specified in the runtime parameter
+          on the number of cores specified in the runtime parameter
 
           multiprocessing : int
               The number of cores used to split the calculation
-      calculate_coeffs_ensemble_multiProc_helper(procNum, R, weights, return_dict):
+      calculate_c_ensemble_multiProc_helper(proc_idx, molecules, weights, return_dict):
           A helper function to handle the return_dict when using multiprocessing
-
-     
       get_mcmc_results(log_prob=False, labels=None, plot=True, thin=True):
           Load the MCMC results into the class and the previous state, as well
           as plot the correlations between theta parameters and the chain history
@@ -286,6 +270,14 @@ class density_extraction:
               anisotropy components
           fit_axis : 1D np.array of type float [q]
               The reciprocal space values of the C coefficients
+      load_data_h5_file():
+          Load saved data from an h5 file with entries
+
+          data_LMK : Diffraction values corresponding to each C coefficient
+          fit_coeffs_dataLMKindex-{} : C coefficients fit from diffraction data
+          fit_coeffs_cov_dataLMKindex-{} : Covariance of the fitted C coefficients
+          fit_LMK_dataLMKindex-{} : LMK values for each C coefficient
+          fit_axis : The axis values (generally q) for each bin
       simulate_data():
           This function will simulate expected C coefficients with different types
           of variations error distributions to apply this method in order to
@@ -323,38 +315,22 @@ class density_extraction:
 
           save_sim_data : string
               The folder to load the files in
+      compare_c_coeffs_scipy(self):
+          Compare C coefficients calculated using C++ spherical bessel functions
+          data_params and those calculated using scipy spherical bessel functions.
+          Comparisons are printed out and the function exits the program after.
       plot_emcee_results(samples, labels=None):
           Plots the the trajectory of each walker (chain) in the sampler, as well
           as the 2d projections of each pair of theta (model) parameters.
       plot_filter(data, plot_filter, plot_folder, axs=None):
           Plot the high pass and low pass filters applied in this analysis
+      make_output_dirs(self, make_plot_dirs):
+          Creates output directories for intermediate and final results
   """
   
-  data_params     = None
-  sampler         = None
-  has_converged   = False
-  tau_convergence = None
-
-  atom_info = {
-      "H" : ["hydrogen", 1.0],
-      "C" : ["carbon", 12.0],
-      "O" : ["oxygen", 16.0],
-      "N" : ["nitrogen", 14.0],
-      "F" : ["flourine", 19.0],
-      "Br": ["bromine", 78.0],
-      "I" : ["iodine", 127.0]
-  }
-
-  I                   = np.ones((1,1))
-  do_multiprocessing  = False
-  plot_setup          = True
-
-
-  density_generator   = None
-  ensemble_generator  = None
-  log_prior = None
-
-  def __init__(self, data_params,
+  def __init__(
+      self,
+      data_params,
       get_molecule_init_geo,
       get_scattering_amplitudes,
       log_prior=None,
@@ -362,7 +338,8 @@ class density_extraction:
       ensemble_generator=None,
       get_ADMs=None,
       results_only=False,
-      make_plot_dirs=True):
+      make_plot_dirs=True,
+      compare_c_coeffs=False):
     """
     This initialization function sets variables and functions, such as the
     log prior and molecular ensemble generators according to the input and
@@ -481,61 +458,54 @@ class density_extraction:
         make_plot_dirs : boolean
             Set to False when only looking at results and not running the MCMC
             in order to not make plot folders in other folders or subfolders
+        compare_c_coeffs : boolean
+            If True, then calculate C coefficients using the C++ implementation
+            of C coefficients and compare it to the scipy calculation.
     """
 
+    ##########################################################
+    #####  Variables, Parameters, Folder, and CPU Setup  #####
+    ##########################################################
+    print("INFO: Setting up parameters, multiprocessing, and output folders")
+    
     self.data_params = data_params
-    self.density_generator = density_generator
-    self.ensemble_generator = ensemble_generator
     if "output_dir" not in self.data_params:
       self.data_params["output_dir"] = "output"
+    
+    # Dictionary relating atomic symbol (key) with name and mass 
+    self.atom_info = { 
+        "H" : ["hydrogen", 1.0],
+        "C" : ["carbon", 12.0],
+        "O" : ["oxygen", 16.0],
+        "N" : ["nitrogen", 14.0],
+        "F" : ["flourine", 19.0],
+        "Br": ["bromine", 78.0],
+        "I" : ["iodine", 127.0]
+    }
 
-
-    # Log Prior
-    if log_prior is not None:
-      self.log_prior = log_prior
-    else:
-      self.log_prior = self.default_log_prior
-
-    # Convert between MCMC parameters theta to cartesian
-    #if theta_to_cartesian is not None:
-    #  self.theta_to_cartesian = theta_to_cartesian
-
-    # Gather ADMs for simulated error
-    if get_ADMs is not None:
-      self.get_ADMs = get_ADMs
-
-    # Plotting
+    # Plot setup and sanity checks
     if "plot_setup" in data_params:
       self.plot_setup = data_params["plot_setup"]
+    else:
+      self.plot_setup = False
 
-    # Skip if results only
+    # Skip the rest of the setup if only looking at results
     if results_only:
-      fileName = os.path.join(self.data_params["output_dir"], self.get_fileName() + ".h5")
+      self.sampler = None
+      self.has_converged = False
+      self.tau_convergence = None
+      fileName = os.path.join(
+          self.data_params["output_dir"],
+          self.get_fileName() + ".h5")
       self.load_emcee_backend(fileName)
 
       return
 
-    # Make output folders
-    print("INFO: Making output folder")
-    if not os.path.exists(os.path.join(
-        self.data_params["output_dir"], self.get_fileName(folder_only=True))):
-      try:
-        os.makedirs(os.path.join(
-            self.data_params["output_dir"], self.get_fileName(folder_only=True)))
-      except OSError as e:
-        if e.errno != errno.EEXIST:
-          raise
-    if make_plot_dirs and not os.path.exists(
-        os.path.join("plots", self.get_fileName(folder_only=True))):
-      try:
-        os.makedirs(os.path.join("plots", self.get_fileName(folder_only=True)))
-      except OSError as e:
-        if e.errno != errno.EEXIST:
-          raise
-
-    # Setup posterior type
-    print("INFO: Setup Multiprocessing")
-    self.C_log_likelihood = self.gaussian_log_likelihood
+    # Make output folders if they don't exist
+    self.make_output_dirs(make_plot_dirs)
+    
+    # Multiprocessing setup
+    self.do_multiprocessing = False
     if "multiprocessing" in self.data_params:
       if self.data_params["multiprocessing"] > 1:
         self.do_multiprocessing = True
@@ -543,9 +513,19 @@ class density_extraction:
     else:
       self.data_params["multiprocessing"] = 1
 
+    ###########################################################################
+    #####  Setup Measured Data (if exists) and Range, and Related Methods #####
+    ###########################################################################
+    
+    # Import Axis Distribution Moments (ADMs)
+    self.ADMs = None
+    if get_ADMs is not None:
+      self.get_ADMs = get_ADMs
+
     # Get initial geometry
     print("INFO: Importing ground state geometry")
-    self.atom_types, self.atom_positions = get_molecule_init_geo(self.data_params)
+    self.atom_types, self.atom_positions = get_molecule_init_geo(
+        self.data_params)
     
     # Setup moment of inertia tensor calculation
     print("INFO: Setting up moment of inertia calculation")
@@ -555,8 +535,9 @@ class density_extraction:
     print("INFO: Rotating initial state molecular frame")
     self.atom_positions = self.rotate_to_principalI(self.atom_positions)
 
-    # Get data
+    # Import measured data
     print("INFO: Getting data")
+    self.I = np.ones((1,1))
     self.data_or_sim = True
     if "simulate_data" in self.data_params:
       if self.data_params["simulate_data"]:
@@ -568,7 +549,102 @@ class density_extraction:
     self.scat_amps_interp = get_scattering_amplitudes(
         self.data_params, self.atom_types, self.atom_info)
     self.evaluate_scattering_amplitudes()
+    self.setup_sms_scat_amps()
+
+    # Make DOM (degree of measurement, often q) mask
+    self.make_dom_mask()
+   
+    ########################################################################
+    #####  Bayesian Inferencing, MCMC, and Sampling Calculation Setup  #####
+    ########################################################################
+    print("INFO: Setup Bayesian Inferencing and MCMC")
     
+    # Log likelihood
+    self.C_log_likelihood = self.gaussian_log_likelihood
+    
+    # Log Prior
+    if log_prior is not None:
+      self.log_prior = log_prior
+    else:
+      self.log_prior = self.default_log_prior
+
+    # MCMC variables and functions
+    self.sampler = None
+    self.has_converged = False
+    self.tau_convergence = None
+    self.density_generator = density_generator
+
+    # Setup Spherical Bessel function and C coefficient calculation
+    self.setup_calculations()
+
+    # Simulate data if needed
+    self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
+    self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
+    self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
+    self.calc_dom = np.expand_dims(self.dom, axis=0)
+
+    #####################################
+    #####  Simulate Data if Needed  #####
+    #####################################
+    self.ensemble_generator = ensemble_generator
+    if not self.data_or_sim:
+      print("INFO: Simulate data")
+      self.simulate_data()
+
+    ##########################################################################
+    #####  Remove Unused Data, Fit I0, Check Spherical Bessel Functions  #####
+    ##########################################################################
+
+    # Prune data in time and dom
+    print("INFO: Pruning data")
+    self.prune_data()
+
+    # Remove global offset
+    if "global_offset" in self.data_params:
+      if self.data_params["global_offset"]:
+        self.remove_global_offset()
+    
+    # Calculate I0
+    print("INFO: Calculating I0")
+    self.calculate_I0()
+
+    ##########################################################
+    #####  Check Numerical inaccuracies in Jn and C_lmk  #####
+    ##########################################################
+
+    # Check Jn calculations
+    self.compare_spherical_bessel_scipy()
+
+    # Check C coefficient calculations
+    if compare_c_coeffs:
+      self.compare_c_coeffs_scipy()
+
+
+  def make_output_dirs(self, make_plot_dirs):
+    """ Creates output directories for intermediate and final results """
+    if not os.path.exists(os.path.join(
+        self.data_params["output_dir"],
+        self.get_fileName(folder_only=True))):
+      try:
+        os.makedirs(os.path.join(
+            self.data_params["output_dir"],
+            self.get_fileName(folder_only=True)))
+      except OSError as e:
+        if e.errno != errno.EEXIST:
+          raise
+    if make_plot_dirs and not os.path.exists(
+        os.path.join("plots", self.get_fileName(folder_only=True))):
+      try:
+        os.makedirs(os.path.join("plots", self.get_fileName(folder_only=True)))
+      except OSError as e:
+        if e.errno != errno.EEXIST:
+          raise
+
+    return
+
+
+  def setup_sms_scat_amps(self):
+    """ Calculate sms normalized scattering amplitudes for all distances """
     dist_inds1 = []
     dist_inds2 = []
     self.dist_sms_scat_amps = []
@@ -583,115 +659,53 @@ class density_extraction:
     self.dist_sms_scat_amps = np.expand_dims(
         np.array(self.dist_sms_scat_amps), axis=0)
 
-    # Setup Spherical Bessel function and C coefficient calculation
-    self.setup_calculations()
 
-    # Simulate data if needed
-    self.data_Lcalc = np.reshape(self.data_LMK[:,0], (-1, 1, 1))
-    self.data_Mcalc = np.reshape(self.data_LMK[:,1], (-1, 1, 1))
-    self.data_Kcalc = np.reshape(self.data_LMK[:,2], (-1, 1, 1))
-    self.calc_dom = np.expand_dims(self.dom, axis=0)
-    if not self.data_or_sim:
-      print("INFO: Simulate data")
-      self.simulate_data()
-
-    # Prune data in time and dom
-    print("INFO: Pruning data")
-    self.prune_data()
-
-    # Remove global offset
+  def compare_spherical_bessel_scipy(self):
+    """  
+    Compares selected bessel function calculation method with scipy results, 
+    This is needed for the C++ implementation since it has numerical 
+    instabilities at low values. This function shows the differences and 
+    prints the largest relative errors to validate the choosen spherical
+    bessel function's accuracy
     """
-    if "global_offset" in self.data_params:
-      if self.data_params["global_offset"]:
-        self.remove_global_offset()
-    """
-
-    # Calculate Wiener mask
-    self.make_wiener_weight()
-
     
-    # Calculate I0
-    print("INFO: Calculating I0")
-    self.calculate_I0()
-    
-    # Subtract the mean from the data
-    # TODO Fix mean subtraction or whatever it should be | Same for C_dist
-    #self.data_coeffs -= np.expand_dims(np.mean(
-    #    self.data_coeffs[:,:], axis=-1), -1)
+    print("###############################################################")
+    print("#####  Checking Scale of Spherical Bessel Function Error  #####")
+    print("###############################################################")
+    # Calculate spherical bessel functions
+    j_check = self.spherical_j(self.dom, len(self.dom))
+    for n in np.unique(self.data_LMK[:,0]):
+      # Compare with scipy calculation
+      n_idx = n//2
+      std_idx = np.where((self.data_LMK[:,0]==n)*(self.data_LMK[:,2]==0))[0][0]
+      std_check = np.abs(sp.special.spherical_jn(n, self.dom)-j_check[n_idx,:])\
+          /np.sqrt(self.data_coeffs_var[std_idx])
+      std_check[np.isnan(std_check)] = 0
+      m = np.amax(std_check)
+      if m < 1.:
+        mm = "Passed"
+      else:
+        mm = "FAILED AT Q={}".format(self.dom[np.argmax(std_check)])
+      print("L = {} \t Largest std = {} at index {} ... {}".format(
+          n, m, np.argmax(std_check), mm))
 
-
-    """
-    # Apply customized likelihood using data
-    if "fit_likelihood" in self.data_params:
-      if self.data_params["fit_likelihood"]:
-        dim_shape = extraction.C_distributions.shape
-        hists, bins = [], []
-        Nbins=75
-        for data in np.reshape(extraction.C_distributions,
-            (dim_shape[0], -1)).transpose():
-
-            h,b = np.histogram(data, bins=Nbins)
-            hists.append(copy(h))
-            bins.append((b[1:]+b[:-1])/2)
-        hists = np.array(hists)
-        bins = np.array(bins)
-        
-        pols = np.arange(10)
-        self.fit_liklihood_offset = bins[:np.argmax(hists[-1])]
-        X = [np.ones_like(np.expand_dims(bins))]
-        for p in pols:
-          X.append(X[-1]*np.expand_dims(bins - np.expand_dims(bins[:,off_dims],-1), 1))
-        X = np.concatenate(X, 1)
-        print(X.shape, np.linalg.inv(np.einsum('ikj,ilj->ikl', X, X)).shape)
-        print(np.einsum('ij,ikj->ik', hists, X).shape)
-        histss = copy(hists)
-        histss[hists==0] = 1
-        print(np.sum(np.isnan(np.log(histss))))
-        coeffs = np.einsum('ikj,ij->ik',
-            np.linalg.inv(np.einsum('ikj,ilj->ikl', X, X)),
-              np.einsum('ij,ikj->ik', np.log(histss), X))
-
-        def fit_log_likelihood(calc_coeffs):
-    """
-
-    ###  Perform Sanity Checks and Function Validations  ###
-    if self.data_params["calc_type"] == 0 or self.do_multiprocessing:
-      print("###############################################################")
-      print("#####  Checking Scale of Spherical Bessel Function Error  #####")
-      print("###############################################################")
-      print("TEST INP", self.dom.shape)
-      j_check = self.spherical_j(self.dom, len(self.dom))
-      for n in np.unique(self.data_LMK[:,0]):
-        ii = n//2#np.where(self.data_LMK[:,0] == n)[0][0]
-        std_check = np.abs(sp.special.spherical_jn(n, self.dom)-j_check[ii,:])\
-            /np.sqrt(self.data_coeffs_var[ii])
-        std_check[np.isnan(std_check)] = 0
-        m = np.amax(std_check)
-        if m < 1.:
-          mm = "Passed"
-        else:
-          mm = "FAILED AT Q={}".format(self.dom[np.argmax(std_check)])
-        print("L = {} \t Largest std = {} at index {} ... {}".format(
-            n, m, np.argmax(std_check), mm))
-
-        # Plot Comparison
-        if self.data_params["plot_setup"]:
-          fig, ax = plt.subplots()
-          ax.plot(self.dom, j_check[ii,:], '-k', label="C++")
-          ax.plot(self.dom, sp.special.spherical_jn(n, self.dom),
-              '--b', label="scipy")
-          ax.set_ylabel("j$_{}$".format(n), color="b", fontsize=17)
-          ax.set_xlabel(r"q $[\AA^{-1}]$", fontsize=17)
-          ax.set_xlim(self.dom[0], self.dom[-1])
-          ax1 = ax.twinx()
-          ax1.plot(self.dom, std_check, "-r", label="t-stat")
-          ax1.set_ylabel("residual [std]", color="r", fontsize=17)
-          #ax1.plot(px, (res[i][0,cut:,0,0]-sp.special.spherical_jn(i*2, x[0,cut:,0,0]))/sp.special.spherical_jn(i*2, x[0,cut:,0,0]))
-          ax.legend(loc="upper left")
-          ax1.legend(loc="upper right")
-          plt.tight_layout()
-          fig.savefig("plots/check_jl{}_calculation.png".format(n))
-      print("\n")
+      # Plot Comparison
+      if self.data_params["plot_setup"]:
+        fig, ax = plt.subplots()
+        ax.plot(self.dom, j_check[n_idx,:], '-k', label="C++")
+        ax.plot(self.dom, sp.special.spherical_jn(n, self.dom),
+            '--b', label="scipy")
+        ax.set_ylabel("j$_{}$".format(n), color="b", fontsize=17)
+        ax.set_xlabel(r"q $[\AA^{-1}]$", fontsize=17)
+        ax.set_xlim(self.dom[0], self.dom[-1])
+        ax1 = ax.twinx()
+        ax1.plot(self.dom, std_check, "-r", label="t-stat")
+        ax1.set_ylabel("residual [std]", color="r", fontsize=17)
+        ax.legend(loc="upper left")
+        ax1.legend(loc="upper right")
+        plt.tight_layout()
+        fig.savefig("plots/check_jl{}_calculation.png".format(n))
+    print("\n")
 
 
   def theta_to_cartesian(self, theta):
@@ -741,12 +755,6 @@ class density_extraction:
     """
     Setup variables to calculate the moment of inertia tensor used to rotate molecules
     into the molecular frame
-
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
     self.mass = np.array([self.atom_info[t][1] for t in self.atom_types])
@@ -755,54 +763,90 @@ class density_extraction:
     self.Itn_idiag = np.arange(3)
 
   
-  def calc_I_tensor(self, R):
+  def calc_I_tensor(self, molecules):
     """
     Calculate the moment of inertia tensor for an array of molecules
 
         Parameters
         ----------
-        R : np.array of type float
+        molecules : np.array of type float
             An array-like of molecular cartesian coordinates
 
         Returns
         -------
+        Inertia tensor for each molecule
     """
 
     # Off diagonal terms
-    I_tensor = -1*np.expand_dims(R, -1)*np.expand_dims(R, -2)
+    I_tensor = -1*np.expand_dims(molecules, -1)*np.expand_dims(molecules, -2)
 
     # Diagonal terms
     I_tensor[:,self.Itn_idiag,self.Itn_idiag] =\
-        R[:,self.Itn_inds1]**2 + R[:,self.Itn_inds2]**2
+        molecules[:,self.Itn_inds1]**2 + molecules[:,self.Itn_inds2]**2
 
     return np.sum(I_tensor*self.mass, 0)
 
   
-  def calc_I_tensor_ensemble(self, R):
+  def calc_I_tensor_ensemble(self, molecules):
     """
     Calculates the moment of inertia tensor for an array of 
     ensembles of molecules
 
         Parameters
         ----------
-        R : np.array of type float
+        molecules : np.array of type float
             An array-like of ensembles of molecular cartesian coordinates
 
         Returns
         -------
+        Inertia tensor for each molecule
     """
 
     # Off diagonal terms
-    I_tensor = -1*np.expand_dims(R, -1)*np.expand_dims(R, -2)
+    I_tensor = -1*np.expand_dims(molecules, -1)*np.expand_dims(molecules, -2)
 
     # Diagonal terms
     I_tensor[:,:,:,self.Itn_idiag,self.Itn_idiag] =\
-        R[:,:,:,self.Itn_inds1]**2 + R[:,:,:,self.Itn_inds2]**2
+        molecules[:,:,:,self.Itn_inds1]**2 + molecules[:,:,:,self.Itn_inds2]**2
 
     return np.sum(I_tensor*self.mass, -3)
 
 
+  def load_data_h5_file(self):
+    """ 
+    Load saved data from an h5 file with entries
 
+    data_LMK : Diffraction values corresponding to each C coefficient
+    fit_coeffs_dataLMKindex-{} : C coefficients fit from diffraction data
+    fit_coeffs_cov_dataLMKindex-{} : Covariance of the fitted C coefficients
+    fit_LMK_dataLMKindex-{} : LMK values for each C coefficient
+    fit_axis : The axis values (generally q) for each bin
+    """
+
+    print("looking at file: ", self.data_params["data_fileName"])
+    with h5py.File(self.data_params["data_fileName"], "r") as h5:
+      # Importing diffraction
+      self.diffraction_LMK_ = h5["data_LMK"][:]
+
+      # Importing C coefficients and covariances
+      self.data_LMK_ = []
+      self.input_data_coeffs_var_, self.input_data_coeffs_ = [], []
+      for i in range(self.diffraction_LMK_.shape[0]):
+        self.data_LMK_.append(
+            h5["fit_LMK_dataLMKindex-{}".format(i)][:].astype(int))
+        self.input_data_coeffs_.append(np.transpose(
+            h5["fit_coeffs_dataLMKindex-{}".format(i)][:]))
+        cov_inds = np.arange(self.data_LMK_[-1].shape[0])
+        self.input_data_coeffs_var_.append(np.transpose(
+            h5["fit_coeffs_cov_dataLMKindex-{}".format(i)][:][:,cov_inds,cov_inds]))
+     
+      # Importing the fit axis
+      self.dom_ = h5["fit_axis"][:]*self.data_params["q_scale"]
+      
+    self.input_data_coeffs_ = np.concatenate(self.input_data_coeffs_, axis=0)
+    self.data_LMK_ = np.concatenate(self.data_LMK_, axis=0)
+    self.input_data_coeffs_var_ = np.concatenate(self.input_data_coeffs_var_, axis=0)
+ 
 
   def get_data(self):
     """
@@ -826,37 +870,12 @@ class density_extraction:
         anisotropy components
     fit_axis : 1D np.array of type float [q]
         The reciprocal space values of the C coefficients
-
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
-    self.ADMs = None
+
     if "data_fileName" in self.data_params:
-      print("looking at file: ", self.data_params["data_fileName"])
-      with h5py.File(self.data_params["data_fileName"], "r") as h5:
-        self.diffraction_LMK_ = h5["data_LMK"][:]
-        self.data_LMK_, self.input_data_coeffs_var_ = [], []
-        for i in range(self.diffraction_LMK_.shape[0]):
-          self.data_LMK_.append(
-              h5["fit_LMK_dataLMKindex-{}".format(i)][:].astype(int))
-          cov_inds = np.arange(self.data_LMK_[-1].shape[0])
-          self.input_data_coeffs_var_.append(np.transpose(
-              h5["fit_coeffs_cov_dataLMKindex-{}".format(i)][:][:,cov_inds,cov_inds]))
-        #self.input_data_coeffs_var *= np.expand_dims(self.input_data_coeffs_var[:,70,:,:], -1)
-        #self.data_lg = h5["legendre_inds"][:]
-        self.dom_ = h5["fit_axis"][:]*self.data_params["q_scale"]
-        self.input_data_coeffs_ = []
-        for i in range(self.diffraction_LMK_.shape[0]):
-          self.input_data_coeffs_.append(np.transpose(
-              h5["fit_coeffs_dataLMKindex-{}".format(i)][:]))
-        self.input_data_coeffs_ = np.concatenate(self.input_data_coeffs_, axis=0)
-      self.data_LMK_ = np.concatenate(self.data_LMK_, axis=0)
-      self.input_data_coeffs_var_ = np.concatenate(self.input_data_coeffs_var_, axis=0)
-      
+      self.load_data_h5_file()
+
       # Keep only lmk elements specified by fit_bases parameter
       if "fit_bases" in self.data_params:
         inds = []
@@ -875,38 +894,11 @@ class density_extraction:
       self.input_data_coeffs_var_ = None
       self.dom_ = self.data_params["dom"]
 
-
-    self.dom_mask = np.ones_like(self.dom_).astype(bool)
-    if "fit_range" in self.data_params:
-      self.data_params["fit_range"][1] =\
-          np.min([self.data_params["fit_range"][1], self.dom_[-1]])
-      """
-      if self.data_params["fit_range"][1] > self.dom[-1]:
-        delta = self.dom[1] - self.dom[0]
-        Nsteps = np.ceil(
-            (self.data_params["fit_range"][1] - (self.dom[-1] + delta))/delta)
-        self.dom = np.concatenate([self.dom,
-          np.linspace(self.dom[-1] + delta, self.dom[-1] + delta + Nsteps*delta,
-            Nsteps+1)])
-        self.dom_mask = np.ones_like(self.dom).astype(bool)
-      """
-      
-      self.dom_mask[self.dom_<self.data_params["fit_range"][0]] = False
-      self.dom_mask[self.dom_>self.data_params["fit_range"][1]] = False
-
     if self.data_or_sim:
       self.dom = self.dom_
       self.data_LMK = self.data_LMK_
       self.input_data_coeffs = self.input_data_coeffs_
       self.input_data_coeffs_var = self.input_data_coeffs_var_
-
-      ind2 = np.where(
-          (self.data_LMK[:,0] == 2) & (self.data_LMK[:,2] == 0))[0]
-      SN_ratio_lg2 = np.nanmean(
-          self.input_data_coeffs_[ind2,self.dom_mask]**2\
-            /self.input_data_coeffs_var_[ind2,self.dom_mask])
-      #print("SN data ratio L=2: {} {}".format(
-      #    SN_ratio_lg2, self.data_params["fit_range"]))
     else:
       self.data_LMK = self.data_params["fit_bases"]
       self.dom = self.data_params["dom"]
@@ -915,11 +907,21 @@ class density_extraction:
     if self.data_params["dom"] is None or "ata" in self.data_params["dom"]:
       print("INFO: Using dom from data")
       self.dom = self.dom_
-
     if "simulate_error" in self.data_params:
       error_type, error_options = self.data_params["simulate_error"]
       if error_type == "data":
         self.dom = self.dom_
+
+
+  def make_dom_mask(self):
+    """ Create a mask to remove regions of the dom we do not use """
+    
+    self.dom_mask = np.ones_like(self.dom_).astype(bool)
+    if "fit_range" in self.data_params:
+      self.data_params["fit_range"][1] =\
+          np.min([self.data_params["fit_range"][1], self.dom_[-1]])
+      self.dom_mask[self.dom_<self.data_params["fit_range"][0]] = False
+      self.dom_mask[self.dom_>self.data_params["fit_range"][1]] = False
 
 
   def simulate_data(self):
@@ -945,12 +947,6 @@ class density_extraction:
             Constant background : ("constant_background", sigma)
                 Will apply a constant error to the C coefficient errors such
                 that the C200 signal to noise is given by sigma                
-                
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
     self.C_distributions = []
@@ -985,7 +981,6 @@ class density_extraction:
       #######################
 
       if self.ensemble_generator is not None:
-        docompare = False
         # Get ensemble of molecules
         ensemble = self.ensemble_generator(
             np.expand_dims(np.array(self.data_params["sim_thetas"])[:-1], 0))
@@ -997,46 +992,8 @@ class density_extraction:
         self.input_data_coeffs_var = None
         self.input_data_coeffs =\
             self.calculate_coeffs(ensemble, weights)[0]
-        if docompare:
-          self.input_data_coeffs =\
-              self.calculate_coeffs_ensemble_cpp(ensemble, weights)[0]
-          print("TEST RES CPP",self.input_data_coeffs[:,100:130])
-          self.input_data_coeffs = np.zeros(
-              (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
-          ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
-          while ind < ensemble.shape[1]:
-            ind_end = np.min([ensemble.shape[1], ind + ind_step])
-            #calc_coeffs = self.calculate_coeffs_ensemble(ensemble)
-            print("WS", weights.shape)
-            calc_coeffs = self.calculate_coeffs_ensemble_scipy(
-                ensemble[:,ind:ind_end], weights[:,ind:ind_end])
-            self.input_data_coeffs = self.input_data_coeffs\
-                + np.sum(np.sum(calc_coeffs\
-                *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1),
-                0), 0)
-            self.C_distributions.append(calc_coeffs)
-            ind = ind_end
-     
-          print("TEST RES PYT",self.input_data_coeffs[:,100:130])
-          sys.exit(0)
                                     
-        """
-        ind, ind_step = 0, 10000
-        while ind < ensemble.shape[0]:
-          ind_end = np.min([ensemble.shape[0], ind + ind_step])
-          self.input_data_coeffs_var = self.input_data_coeffs_var\
-              + np.sum(
-                (self.calculate_coeffs_ensemble(ensemble[ind:ind_end])\
-                  - self.input_data_coeffs)**2\
-                *np.expand_dims(weights[ind:ind_end], -1), 0)
-          ind = ind_end
-        """
-        #print("DATA", self.input_data_coeffs[-2,2], self.input_data_coeffs_var[-2,2])
         self.data_params["isMS"] = True
-        #self.C_distributions = np.transpose(
-        #    np.concatenate(self.C_distributions, 1),
-        #    (1,2,0))
-        
         #plt.errorbar(self.dom, self.data_coeffs[i,:], np.sqrt(self.data_coeffs_var[i,:]))
       else:
         raise ValueError("Must specify ensemble generator when initializing class")
@@ -1143,7 +1100,7 @@ class density_extraction:
 
     """
     tmp = copy(self.input_data_coeffs)
-    #shift = rnd.normal(size=self.input_data_coeffs.shape)
+    #shift = np.random.normal(size=self.input_data_coeffs.shape)
     #shift *= np.sqrt(self.input_data_coeffs_var[:,:,0,0])
     # TODO debugging
     #self.input_data_coeffs += shift
@@ -1159,6 +1116,39 @@ class density_extraction:
       raise RuntimeError("ERROR: input_data_coeffs_var is still None!!!")
 
 
+  def compare_c_coeffs_scipy(self):
+    """
+    Compare C coefficients calculated using C++ spherical bessel functions
+    data_params and those calculated using scipy spherical bessel functions.
+    Comparisons are printed out and the function exits the program after.
+    """
+
+    # C coefficients using C++ calculations
+    input_data_coeffs_cpp =\
+        self.calculate_coeffs_ensemble_cpp(ensemble, weights)[0]
+    print("TEST RES CPP", input_data_coeffs[:,100:130])
+
+    # C coefficients using scipy calculation
+    input_data_coeffs_py = np.zeros(
+        (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
+    ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
+    while ind < ensemble.shape[1]:
+      ind_end = np.min([ensemble.shape[1], ind + ind_step])
+      c_calc = self.calculate_coeffs_ensemble_scipy(
+          ensemble[:,ind:ind_end], weights[:,ind:ind_end])
+      input_data_coeffs_py = input_data_coeffs_py\
+          + np.sum(np.sum(c_calc\
+          *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1),
+          0), 0)
+      self.C_distributions.append(c_calc)
+      ind = ind_end
+    
+    print("TEST RES PYT", input_data_coeffs_py[:,100:130])
+    print("L1 of the difference: {}".format(
+        np.sum(np.abs(input_data_coeffs_cpp - input_data_coeffs_py))))
+    sys.exit(0)
+
+
   def save_simulated_data(self):
     """
     Save the simulated C coefficients and the calculated errors in an h5 
@@ -1166,16 +1156,11 @@ class density_extraction:
 
     save_sim_data : string
         The folder to save the files in
-    
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
-    if not os.path.exists(os.path.join(
-        self.data_params["save_sim_data"], self.get_fileName(folder_only=True))):
+    check_fileName = os.path.join(
+        self.data_params["save_sim_data"], self.get_fileName(folder_only=True))
+    if not os.path.exists(check_fileName):
       try:
         os.makedirs(os.path.join(
             self.data_params["save_sim_data"], self.get_fileName(folder_only=True)))
@@ -1275,7 +1260,6 @@ class density_extraction:
       #if self.C_distributions is not None:
       #  temp_C_distributions_LMK = np.concatenate(temp_C_distributions_LMK)
     
-   
     # Prune dom axis
     self.dom = self.dom[self.dom_mask]
     self.calc_dom = np.expand_dims(self.dom, axis=0)
@@ -1292,81 +1276,11 @@ class density_extraction:
         self.experimental_var = self.experimental_var[:,self.dom_mask]
    
 
-  def make_wiener_weight(self):
-    do_wiener = True
-    if "wiener" in self.data_params:
-      do_wiener = self.data_params["wiener"]
-
-    if do_wiener:
-      # Wiener Filter
-      if self.data_coeffs_var is not None:
-        all_dists = calc_dists(self.atom_positions)
-        dists = all_dists[self.dist_inds]
-        C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
-            *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
-        J_scale = 1./np.expand_dims(
-            self.dom*np.expand_dims(dists[:,0], axis=-1), 0)
-        Y = sp.special.sph_harm(-1*self.data_Kcalc, self.data_Lcalc,
-            np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1),
-            np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1))
-        S = self.I*np.sum(np.real(self.dist_sms_scat_amps*C*Y*J_scale), axis=1)
-        S = S**2
-
-
-        N = copy(self.data_coeffs_var)
-        if not self.data_params["isMS"]:
-          N /= self.atm_scat**2
-
-        self.wiener = S/(S+N)
-      else:
-        raise ValueError(
-            "data_coeffs_var must be specified to calculate wiener weight")
-    else:
-      self.wiener = np.ones((1,1))
-
-    if self.plot_setup:
-      for lg in range(len(self.data_LMK)):
-        fig, ax = plt.subplots()
-        handles = []
-        handles.append(ax.errorbar(self.dom, self.data_coeffs[lg,:],\
-            np.sqrt(self.data_coeffs_var[lg,:]),\
-            label="legendre {}-{}-{}".format(*self.data_LMK[lg])))
-        ax.plot(self.dom, self.data_coeffs[lg,:], '-k')
-        if np.prod(self.wiener.shape) > 1:
-          ax2 = ax.twinx()
-          ax2.plot(self.dom, self.wiener[lg,:], color='gray')
-          ax2.tick_params(axis='y', labelcolor='gray') 
-          ax.set_xlabel(r'q $[\AA]$')
-          ax.set_ylabel("C [arb]")
-          ax2.set_ylabel("Data Filter")
-        ax.legend(handles=handles)
-        fig.savefig("./plots/{}/data_coeffs_lg-{}-{}-{}.png".format(
-          self.data_params["molecule"], *self.data_LMK[lg]))
-        plt.close()
-        #if self.data_LMK[lg][0] == 2 and self.data_LMK[lg][-1] == 0:
-        #  print(self.data_coeffs[lg,:])
-
-    """
-    # Must normalize filter to account for the removed bins
-    print("WEIN SHAPE", self.wiener.shape)
-    w_norm_ = np.mean(self.wiener, axis=-1, keepdims=True)
-    w_norm = 1./copy(w_norm_)
-    w_norm[w_norm_==0] = 0
-    self.wiener *= w_norm
-    """
-
-
   def evaluate_scattering_amplitudes(self):
     """
     This function fills the scat_amps dictionary with interpolated scattering
     amplitudes evaluated at the reciprocal space measurement points and builds
     the atomic scattering.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
     self.atm_scat = np.zeros_like(self.dom)
@@ -1377,73 +1291,116 @@ class density_extraction:
       self.atm_scat += self.scat_amps[atm]**2
 
 
-  def rotate_to_principalI(self, R):
+  def calculate_dists(self, molecules):
     """
-    Rotate the molecular cartesian coordinates in R to the molecular frame
+    Calculate the distances between all atoms in polar coordinates
 
         Parameters
         ----------
+        molecules : 2D np.array of type float [atoms,xyz]
+            The cartesian coordinates of each atom
 
         Returns
         -------
+        diff : 2D np.array of type float [N_dists,polar]
+            An array of atomic pair-wise distances in polar coordinates
+            A symmetric matrix of distances between atoms in polar coordinates
+    """
+
+    r = np.expand_dims(molecules, 1) - np.expand_dims(molecules, 0)
+    dR = np.sqrt(np.sum(r**2, axis=2))
+    theta = np.arccos(r[:,:,2]/(dR + 1e-20))
+    phi = np.arctan2(r[:,:,1], r[:,:,0])
+
+    # Distances occur twice in upper and lower triangle of [atoms,atoms,polar]
+    double_dists = np.concatenate([np.expand_dims(dR,2),\
+      np.expand_dims(theta, 2),\
+      np.expand_dims(phi, 2)], axis=2)
+
+    return double_dists[self.dist_inds]
+
+
+  def calculate_ensemble_dists(self, molecules):
+    """
+    For each molecule in an ensemble we calculate the distances between
+    all atoms in in a single molecule polar coordinates. 
+
+        Parameters
+        ----------
+        molecules : 2D np.array of type float [N,atoms,xyz]
+            The cartesian coordinates of each atom
+
+        Returns
+        -------
+        diff : 3D np.array of type float [N,N_dists,polar]
+            An array of atomic pair-wise distances in polar coordinates
+    """
+
+    r = np.expand_dims(molecules, 2) - np.expand_dims(molecules, 1)
+    dR = np.sqrt(np.sum(r**2, axis=-1))
+    theta = np.arccos(r[:,:,:,2]/(dR + 1e-20))
+    phi = np.arctan2(r[:,:,:,1], r[:,:,:,0])
+
+    # Distances occur twice in upper and lower triangle of [atoms,atoms,polar]
+    doublt_dists = np.concatenate([np.expand_dims(dR,-1),\
+      np.expand_dims(theta, -1),\
+      np.expand_dims(phi, -1)], axis=-1)
+
+    return double_dists[self.dist_inds]
+
+
+  def rotate_to_principalI(self, molecules):
+    """
+    Rotate a single molecular's cartesian coordinates to the molecular frame
+
+        Parameters
+        ----------
+        molecules : 2D np.array of type float [atoms,xyz]
+            The molecule cartesian coordinates to be rotated
+
+        Returns
+        -------
+        molecules : 2D np.array of type float [atoms,xyz]
+            The rotated molecular carteisan coordiantes
     """
 
     # Center of Mass
-    R -= np.sum(R*self.mass[:,0], -2, keepdims=True)/np.sum(self.mass)
+    molecules -= np.sum(molecules*self.mass[:,0], -2, keepdims=True)
+    molecules /= np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
-    I_tensor = self.calc_I_tensor(R)
+    I_tensor = self.calc_I_tensor(molecules)
     Ip, I_axis = np.linalg.eigh(I_tensor)
 
-    return np.matmul(R, I_axis)[:,np.array([1,2,0])]
+    return np.matmul(molecules, I_axis)[:,np.array([1,2,0])]
 
 
-  def rotate_to_principalI_ensemble(self, R):
+  def rotate_to_principalI_ensemble(self, molecules):
     """
-    Rotate an ensemble molecular cartesian coordinates in R to the
+    Rotate an ensemble molecular cartesian coordinates in molecules to the
     molecular frame
 
         Parameters
         ----------
+        molecules : 4D np.array of type float [N,molecules,atoms,xyz]
+            The molecule cartesian coordinates to be rotated
 
         Returns
         -------
+        molecules : 4D np.array of type float [N,molecules,atoms,xyz]
+            The rotated molecular carteisan coordiantes
     """
 
     # Center of Mass
-    R -= np.sum(R*self.mass[:,0], axis=-2, keepdims=True)/np.sum(self.mass)
+    molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
+    molecules /= np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
-    I_tensor = self.calc_I_tensor_ensemble(R)
+    I_tensor = self.calc_I_tensor_ensemble(molecules)
     Ip, I_axis = np.linalg.eigh(I_tensor)
 
-    return np.matmul(R, I_axis)[:,:,:,np.array([1,2,0])]
+    return np.matmul(molecules, I_axis)[:,:,:,np.array([1,2,0])]
 
-
-  """
-  def get_molecule_init_geo(self):
-    if not os.path.exists(self.data_params["init_geo_xyz"]):
-      print("Cannot find xyz file: " + self.data_params["init_geo_xyz"])
-      sys.exit(1)
-
-    self.atom_types      = []
-    self.atom_positions  = []
-    with open(self.data_params["init_geo_xyz"]) as file:
-      for i,ln in enumerate(file):
-        if i == 0:
-          Natoms = int(ln)
-        elif i > 1:
-          vals = ln.split()
-          print("\t" + vals)
-          self.atom_types.append(vals[0])
-          pos = [float(x) for x in vals[1:]]
-          self.atom_positions.append(np.array([pos]))
-
-    self.atom_positions = np.concatenate(self.atom_positions, axis=0)
-  """
-
-
-    
 
   def calculate_coeffs_single_scipy(self, molecules):
     """
@@ -1457,16 +1414,15 @@ class density_extraction:
 
         Returns
         -------
-        calc_coeffs : 3D np.array of type float [N,lmk,q]
+        c_calc : 3D np.array of type float [N,lmk,q]
             The calculated C coefficients
     """
 
     # Rotate molecule into the MF (Principal axis of I)
-    R = self.rotate_to_principalI(molecules)
+    molecules = self.rotate_to_principalI(molecules)
 
     # Calculate pair-wise vectors
-    all_dists = calc_dists(R)
-    dists = all_dists[self.dist_inds]
+    dists = self.calculate_dists(molecules)
 
     # Calculate diffraction response
     C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
@@ -1479,43 +1435,40 @@ class density_extraction:
 
 
     # Sum all pair-wise contributions
-    calc_coeffs = np.sum(np.real(self.dist_sms_scat_amps*C*J*Y), axis=1)
+    c_calc = np.sum(np.real(self.dist_sms_scat_amps*C*J*Y), axis=1)
 
-    # Subtract mean and normalize 
-    # TODO Fix subtract mean
-    #calc_coeffs -= np.expand_dims(np.mean(calc_coeffs, axis=-1), -1)
-    calc_coeffs *= self.I
+    # Normalize by I0
+    c_calc *= self.I
 
-    return calc_coeffs
+    return c_calc
 
 
-  def calculate_coeffs_ensemble_scipy(self, R, w):
+  def calculate_coeffs_ensemble_scipy(self, molecules, w):
     """
     Calculate the C coefficients using Scipy functions for an array-like
     of ensembles of molecular geometries in cartesian space
 
         Parameters
         ----------
-        R : 4D np.array of type float [N,ensemble,atoms,xyz]
+        molecules : 4D np.array of type float [N,ensemble,atoms,xyz]
             An array of ensembles of molecular cartesian cordinates
         w : 2D np.array of type float [N,ensemble]
             The weights of each geometry in the ensemble
 
         Returns
         -------
-        calc_coeffs : 2D np.array of type float [N,lmk,q]
+        c_calc : 2D np.array of type float [N,lmk,q]
             The calculated C coefficients
     """
 
     # Rotate molecule into the MF (Principal axis of I)
     #tic = time.time()
-    R = self.rotate_to_principalI_ensemble(R).transpose((2,3,0,1))
+    molecules = self.rotate_to_principalI_ensemble(molecules)
+    molecules = molecules.transpose((2,3,0,1))
     #print("\trotate time:", time.time()-tic)
 
     # Calculate pair-wise vectors
-    all_dists = calc_dists(R)
-    #print("all dists", R)
-    dists = all_dists[self.dist_inds]
+    dists = self.calculate_dists(molecules)
 
     # Calculate diffraction response
     #ttic = time.time()
@@ -1539,22 +1492,21 @@ class density_extraction:
 
     # Sum all pair-wise contributions
     #tic = time.time()
-    calc_coeffs = np.sum(np.real(
+    c_calc = np.sum(np.real(
         np.expand_dims(np.expand_dims(self.dist_sms_scat_amps, -1), -1)\
         *np.expand_dims(np.expand_dims(C, -1), -1)*J*Y), axis=1)
     #print("\tsum time:", time.time()-tic)
 
-    #plt.hist(calc_coeffs[-1,2,:], bins=25, weights=w[:,0])
+    #plt.hist(c_calc[-1,2,:], bins=25, weights=w[:,0])
     #plt.savefig("testDist.png")
     #plt.close()
-    # Subtract mean and normalize 
-    #calc_coeffs -= np.expand_dims(np.mean(calc_coeffs[:,:], axis=1), 1)
-    calc_coeffs *= self.I
+    # Normalize by I0
+    c_calc *= self.I
 
-    return calc_coeffs.transpose((2,3,0,1))
+    return c_calc.transpose((2,3,0,1))
 
 
-  def calculate_coeffs_ensemble_multiProc(self, ensemble, weights):
+  def calculate_c_ensemble_multiProc(self, ensembles, weights):
     """
     Split the C coefficient calculations among different processors based
     on the number specified in the runtime parameter
@@ -1564,7 +1516,7 @@ class density_extraction:
 
         Parameters
         ----------
-        ensemble : 4D np.array of type float [N,ensemble,atoms,xyz]
+        ensembles : 4D np.array of type float [N,ensemble,atoms,xyz]
             An array of ensembles of molecular geometries
         weights : 2D np.array of type float [N,ensemble]
             An array of weights for the probability each geometry would appear
@@ -1572,47 +1524,50 @@ class density_extraction:
 
         Returns
         -------
-        calc_coeffs : 3D np.array of type float [N,lmk,q]
+        c_calc : 3D np.array of type float [N,lmk,q]
             The calculated C coefficients for each ensemble
     """
 
-    mp_stride = int(np.ceil(
-        ensemble.shape[0]/self.data_params["multiprocessing"]))
+    # Submit multiprocessing jobs
+    mp_stride = int(np.ceil(  # Number of entries per processor
+        ensembles.shape[0]/self.data_params["multiprocessing"]))
     jobs = []
-    return_dict = self.mp_manager.dict()
-    for i in range(self.data_params["multiprocessing"]):
-      p = mp.Process(target=self.calculate_coeffs_ensemble_multiProc_helper,
-          args=(i,
-            ensemble[i*mp_stride:(i+1)*mp_stride],
-            weights[i*mp_stride:(i+1)*mp_stride],
-            return_dict))
-      p.start()
-      jobs.append(p)
-      if (i+1)*mp_stride >= ensemble.shape[0]:
-        break
+    return_dict = self.mp_manager.dict() # Shared memory for results
+    for proc_idx in range(self.data_params["multiprocessing"]):
+      process = mp.Process(target=self.calculate_c_ensemble_multiProc_helper,
+          args=(proc_idx,
+              ensembles[proc_idx*mp_stride:(proc_idx+1)*mp_stride],
+              weights[proc_idx*mp_stride:(proc_idx+1)*mp_stride],
+              return_dict))
+      process.start()
+      jobs.append(process)
 
+    # Block the program from progressing until all jobs are finished
     for p in jobs:
       p.join()
 
-    calc_coeffs = []
-    for pNum in np.arange(len(return_dict)):
-      calc_coeffs.append(return_dict[pNum])
-    calc_coeffs = np.concatenate(calc_coeffs)
+    # Combine job results in the same order as ensembles
+    c_calc = [return_dict[pNum] for pNum in range(len(return_dict))]
+    c_calc = np.concatenate(c_calc)
     del return_dict
 
-    return calc_coeffs
+    return c_calc
 
 
-  def calculate_coeffs_ensemble_multiProc_helper(
-      self, procNum, R, weights, return_dict):
+  def calculate_c_ensemble_multiProc_helper(
+      self,
+      proc_idx,
+      molecules,
+      weights,
+      return_dict):
     """
     A helper function to handle the return_dict when using multiprocessing
 
         Parameters
         ----------
-        procNum : int
+        proc_idx : int
             The identifying process number
-        R : 4D np.array of type float [N,ensemble,atoms,xyz]
+        molecules : 4D np.array of type float [N,ensemble,atoms,xyz]
             An array of ensembles of molecular geometries
         weights : 2D np.array of type float [N,ensemble]
             An array of weights for the probability each geometry would appear
@@ -1620,99 +1575,67 @@ class density_extraction:
         return_dict : multiprocessing.mp_manager.dict() instance
             A dictionary that has shared memory with all the other processors 
             to save the calculated C coefficients for each process
-
-        Returns
-        -------
     """
     
-    return_dict[procNum] = self.calculate_coeffs_ensemble_cpp(R, weights)
+    return_dict[proc_idx] = self.calculate_coeffs_ensemble_cpp(
+        molecules,
+        weights)
 
 
-  def calculate_coeffs_ensemble_cpp(self, R, weights, verbose=False):
+  def calculate_coeffs_ensemble_cpp(self, molecules, weights):
     """
     Calculate the C coefficients using the C++ implementation of the
-    Spherical Bessel functions in this package
+    Spherical Bessel functions
 
         Parameters
         ----------
-        R : 4D np.array of type float [N,ensemble,atoms,xyz]
+        molecules : 4D np.array of type float [N,ensemble,atoms,xyz]
             An array of ensembles of molecular geometries
         weights : 2D np.array of type float [N,ensemble]
-            An array of weights for the probability each geometry would appear
-            in the ensemble
-        return_dict : multiprocessing.mp_manager.dict() instance
-            A dictionary that has shared memory with all the other processors 
-            to save the calculated C coefficients for each process
-        verbose : bool
-            Print the time it takes to evaluate various parts of the calcuation
+            The weights, probabilities, that each geometry would appear in
+            the ensemble
 
         Returns
         -------
-        calc_coeffs : 3D np.array of type float [N,lmk,q]
+        c_calc : 3D np.array of type float [N,lmk,q]
             The calculated C coefficients for each ensemble
     """
 
-    # Rotate molecule into the MF (Principal axis of I)
-    if verbose:
-      tic = time.time()
-    R = self.rotate_to_principalI_ensemble(R).transpose((2,3,0,1))
-    if verbose:
-      print("\trotate time:", time.time()-tic)
+    # Rotate molecule into the molecular frame (principal moments of inertia)
+    molecules = self.rotate_to_principalI_ensemble(molecules)
+    molecules = molecules.transpose((2,3,0,1))
 
     # Calculate pair-wise vectors
-    all_dists = calc_dists(R)
-    print("all dists", R.shape, all_dists.shape)
-    dists = all_dists[self.dist_inds]
+    dists = self.calculate_dists(molecules)
 
-    # Calculate diffraction response
-    if verbose:
-      ttic = time.time()
-      tic = time.time()
-    C = np.complex(0,1)**self.data_LMK[:,0]*8*np.pi**2\
+    # Calculate C coefficient prefactors
+    c_prefactor = np.complex(0,1)**self.data_LMK[:,0]*8*np.pi**2\
         /(2*self.data_LMK[:,0] + 1)\
         *np.sqrt(4*np.pi*(2*self.data_LMK[:,0] + 1))
-    if verbose:
-      print("\tC time:", C.shape, time.time()-tic)
-      tic = time.time()
    
-    Y = sp.special.sph_harm(
+    # Calculate spherical harmonics
+    Ylk = sp.special.sph_harm(
         -1*np.expand_dims(self.data_Kcalc, -1),
         np.expand_dims(self.data_Lcalc, -1),
         np.expand_dims(dists[:,2], axis=0),
         np.expand_dims(dists[:,1], axis=0))
-    if verbose:
-      print("\tY:", Y.shape, time.time()-tic)
-      tic = time.time()
 
-    print("input shape", dists.shape, self.calc_dom.shape, (np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)*np.expand_dims(dists[:,0], axis=1)).shape)
-    calc_coeffs = calc_c_coeffs_cpp(
+    # Calculate C coefficents via C++ implementation
+    c_calc = calculate_c_cpp(
         np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
           *np.expand_dims(dists[:,0], axis=1),
-        self.data_LMK[:,0], C, Y,
-        self.dist_sms_scat_amps, weights)
+        self.data_LMK[:,0],
+        c_prefactor,
+        Ylk,
+        self.dist_sms_scat_amps,
+        weights)
 
-    if verbose:
-      print("\tcpp time:", time.time()-tic)
-      print("\tCJY time:", time.time()-ttic)
+    # Normalize by the beam intensity
+    c_calc *= self.I
 
-    # Subtract mean and normalize 
-    #calc_coeffs -= np.expand_dims(np.mean(calc_coeffs[:,:], axis=1), 1)
-    calc_coeffs *= self.I
-
-    return calc_coeffs.transpose((2,0,1))
+    return c_calc.transpose((2,0,1))
  
 
-  """
-  def calculate_log_prob_density(self, R, n=0):
-
-    calc_coeffs = self.calculate_coeffs(R)
-   
-    prob = np.mean(-0.5*(self.data_coeffs - calc_coeffs)**2\
-        /self.data_coeffs_var)
-    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
-   
-    return prob
-  """
   
   def default_log_prior(self, theta):
     """
@@ -1732,7 +1655,7 @@ class density_extraction:
     return np.zeros(theta.shape[0])
 
 
-  def gaussian_log_likelihood(self, calc_coeffs):
+  def gaussian_log_likelihood(self, c_calc):
     """
     Calculates the log likelihood of the calculated C coefficients with the
     given data assuming the error distribution of each C coefficient is 
@@ -1740,94 +1663,22 @@ class density_extraction:
 
         Parameters
         ----------
-        calc_coeffs : 3D np.array of type float [N,lmk,q]
+        c_calc : 3D np.array of type float [N,lmk,q]
             The calculated C coefficients for each ensemble
         
         Returns
         -------
+        log_likelihood : 3D np.array of type float [N,lmk,q]
+            The log of the gaussian likelihood
     """
 
-    return -0.5*(self.data_coeffs - calc_coeffs)**2\
+    return -0.5*(self.data_coeffs - c_calc)**2\
         /self.data_coeffs_var
 
 
-  def log_likelihood_density(self, theta, n=0):
-
-    # Convert parameters to cartesian coordinates
-    molecules = self.theta_to_cartesian(theta)
-
-    calc_coeffs = self.calculate_coeffs_ensemble(molecules, 1)
-
-    prob = np.nanmean(np.nanmean(
-          self.wiener*self.C_log_likelihood(calc_coeffs),
-        axis=-1), axis=-1)
-    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
- 
-    return prob 
-
-
-  """
-  def log_likelihood_optimal(self, theta, n=0):
-
-    # Convert parameters to cartesian coordinates
-    molecules = self.theta_to_cartesian(theta)
-
-    calc_coeffs = self.calculate_coeffs_ensemble(molecules)
-
-    prob = np.nansum(np.nansum(
-          self.wiener*self.C_log_likelihood(calc_coeffs),
-        axis=-1), axis=-1)
-    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
- 
-    return prob
-  """
-
-
-  def log_likelihood_optimal(self, theta, n=0):
-    print("IN OPT")
-
-    # Simulate the molecular ensemble
-    ensemble = self.density_generator(theta)   # Cartesian
-    if len(ensemble) == 2:
-      ensemble, weights = ensemble
-    else:
-      weights = np.ones((ensemble.shape[0], 1))
-
-
-    tic = time.time()
-    calc_coeffs = self.calculate_coeffs(ensemble, weights)
-    tic = time.time()
-    """
-    calc_coeffs = np.zeros(
-        (theta.shape[0], self.data_LMK[:,0].shape[0], self.dom.shape[0]))
-    ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
-    print("calc time:", time.time()-tic)
-    print("TEST CPP", calc_coeffs[450:455,:,100:150])
-    calc_coeffs = np.zeros(
-        (theta.shape[0], self.data_LMK[:,0].shape[0], self.dom.shape[0]))
-    while ind < ensemble.shape[1]:
-      ind_end = np.min([ensemble.shape[1], ind + ind_step])
-      calc_coeffs_ = self.calculate_coeffs_ensemble(ensemble[:,ind:ind_end], 1)
-      calc_coeffs = calc_coeffs\
-          + np.sum(calc_coeffs_\
-            *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1), 1)
-      #print("temp", ind, ind_step, ensemble[:,ind:ind_end].shape, calc_coeffs_.shape, calc_coeffs.shape)
-      ind = ind_end
-    print("TEST PY", calc_coeffs[450:455,:,100:150])
-
-    print("calc time:", time.time()-tic)
-    """
-  
-    prob = np.nansum(np.nansum(
-          self.wiener*self.C_log_likelihood(calc_coeffs),
-        axis=-1), axis=-1)
-    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
- 
-    return prob
-
   def log_likelihood(self, theta):
     """
-    Calculate the log likelihood of with the theta parameters given the
+    Calculate the log likelihood with the theta parameters given the
     observed or simulated C coefficients by building an ensemble from the
     density generator
 
@@ -1850,17 +1701,16 @@ class density_extraction:
     else:
       weights = np.ones((ensemble.shape[0], 1))
 
-    calc_coeffs = self.calculate_coeffs(ensemble, weights)
+    c_calc = self.calculate_coeffs(ensemble, weights)
 
-    prob = np.nansum(np.nansum(
-          self.wiener*self.C_log_likelihood(calc_coeffs),
+    log_like = np.nansum(np.nansum(
+          self.C_log_likelihood(c_calc),
         axis=-1), axis=-1)
-    #    + np.log(1/np.sqrt(self.data_coeffs_var)))
 
-    return prob
+    return log_like
 
 
-  def log_probability(self, theta):
+  def log_joint_probability(self, theta):
     """
     Calculates and combines the log likelihood and the log prior for each
     set of theta (model) parameters later used to compare between theta
@@ -1878,16 +1728,12 @@ class density_extraction:
     """
 
     # Evaluate log prior
-    lprior = self.log_prior(theta)
+    log_prior = self.log_prior(theta)
 
     # Evaluate log likelihood
-    llike = self.log_likelihood(theta)
-    #print("## Backend log prob ##")
-    #print(self.sampler.backend.log_prob[-1,:])
-    #print("## Chain ##")
-    #print(self.sampler.backend.chain[-1])
+    log_like = self.log_likelihood(theta)
 
-    return lprior + llike
+    return log_prior + log_like
 
 
   def setup_sampler(self, nwalkers=None, ndim=None, expect_file=False):
@@ -1938,7 +1784,7 @@ class density_extraction:
    
     print("INFO: Setting up MCMC")
     self.sampler = emcee.EnsembleSampler(
-        nwalkers, ndim, self.log_probability,
+        nwalkers, ndim, self.log_joint_probability,
         backend=backend, vectorize=True)
 
     return exists, last_walker_pos
@@ -1968,9 +1814,6 @@ class density_extraction:
             theta parameters from a previosly saved file
         Nsteps : int 
             The number of sampling steps in each batch: "run_limit"
-
-        Returns
-        -------
     """
 
     nwalkers, ndim = walker_init_pos.shape
@@ -2065,10 +1908,6 @@ class density_extraction:
     print("INFO: Loading backend {}".format(fileName))
     backend = emcee.backends.Backend()
     with h5py.File(fileName, "r") as h5:
-      #if h5["nwalkers"][...] != nwalkers or h5["ndim"][...] != ndim:
-      #  print("ERROR: nwalkers or ndims do not match: {} != {} / {} != {}".format(
-      #      h5["nwalkers"][...], nwalkers, h5["ndim"][...], ndim))
-      #  sys.exit(0)
       backend.nwalkers = int(h5["nwalkers"][...])
       backend.ndim = int(h5["ndim"][...])
       backend.chain = h5["chain"][:]
@@ -2095,12 +1934,6 @@ class density_extraction:
   def save_emcee_backend(self):
     """
     Saves the state and results (backend) of the current emcee Sampler
-
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
    
     fileName = os.path.join(
@@ -2145,8 +1978,12 @@ class density_extraction:
         h5.create_dataset("filtered_chain", data=np.array([False]))
 
   
-  def get_mcmc_results(self,
-      log_prob=False, labels=None, plot=True, thin=True):
+  def get_mcmc_results(
+      self,
+      log_prob=False,
+      labels=None,
+      plot=True,
+      thin=True):
     """
     Load the MCMC results into the class and the previous state, as well
     as plot the correlations between theta parameters and the chain history
@@ -2281,9 +2118,6 @@ class density_extraction:
             If True do not fit or change I, else do so (default)
         plot : bool
             If True (default) plot the given C coefficients and the scaled calculated C coefficients
-
-        Returns
-        -------
     """
 
     print("INFO: Initial thetas used to fit I0")
@@ -2295,23 +2129,23 @@ class density_extraction:
     else:
       weights = np.ones((ensemble.shape[0], 1))
 
-    calc_coeffs = self.calculate_coeffs(ensemble, weights)
+    c_calc = self.calculate_coeffs(ensemble, weights)
 
     # Calculate Scale Factor
     if not skip_scale and self.data_or_sim:
       self.I = np.ones((1,1))
       if "I_scale" in self.data_params:
         if self.data_params["I_scale"] is None:
-          self.fit_I0(calc_coeffs)
+          self.fit_I0(c_calc)
         else:
           self.I = self.data_params["I_scale"]
       else:
         #TODO FIX THIS OPTION, fig_I0 does not exist
-        self.fig_I0(calc_coeffs)
+        self.fig_I0(c_calc)
 
     # Plot initial theta coeffs vs data
     if plot and self.plot_setup:
-      plot_coeffs = self.I*calc_coeffs[0]
+      plot_coeffs = self.I*c_calc[0]
       for i in range(plot_coeffs.shape[0]):
         plt.errorbar(self.dom, self.data_coeffs[i,:], np.sqrt(self.data_coeffs_var[i,:]))
         plt.plot(self.dom, plot_coeffs[i,:], '-k')
@@ -2320,14 +2154,14 @@ class density_extraction:
         plt.close()
 
 
-  def fit_I0(self, calc_coeffs, data=None, var=None, return_vals=False):
+  def fit_I0(self, c_calc, data=None, var=None, return_vals=False):
     """
     Fit the C200 coefficient for the intensity of the diffraction probe (I0)
     by minimizing the chi square
 
         Parameters
         ----------
-        calc_coeffs : 3D np.array of type float [1,lmk,q]
+        c_calc : 3D np.array of type float [1,lmk,q]
             The calculated C coefficients
         data : 2D np.array of type float [lmk,q] or None
             The data to fit the I0 coefficient to, will use the imported or
@@ -2352,9 +2186,9 @@ class density_extraction:
       data = self.data_coeffs
     if var is None:
       var = self.data_coeffs_var
-    I = np.nansum(calc_coeffs/var*data, -1)\
-        /np.nansum(calc_coeffs/var*calc_coeffs, -1)
-    I_std = np.sqrt(1./np.sum(calc_coeffs**2/var, -1))
+    I = np.nansum(c_calc/var*data, -1)\
+        /np.nansum(c_calc/var*c_calc, -1)
+    I_std = np.sqrt(1./np.sum(c_calc**2/var, -1))
     I = I[0]
     if len(np.array(I).shape) < 2:
       I = np.reshape(I, (1, 1))
@@ -2378,7 +2212,7 @@ class density_extraction:
       else:
         weights = np.ones((ensemble.shape[0], 1))
 
-      calc_coeffs = self.calculate_coeffs(ensemble, weights)[0]
+      c_calc = self.calculate_coeffs(ensemble, weights)[0]
       print("AAAA", self.calculate_coeffs(ensemble, weights).shape)
     else:
       raise ValueError(
@@ -2386,10 +2220,10 @@ class density_extraction:
 
 
     if "scale" not in self.data_params:
-      I_init, I_std_init = fit_I0(calc_coeffs, return_vals=True,
+      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     elif self.data_params["scale"] is None: 
-      I_init, I_std_init = fit_I0(calc_coeffs, return_vals=True,
+      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     else:
       I_init, I_std_init = np.array([[self.data_params["scale"]]]), 0
@@ -2432,7 +2266,7 @@ class density_extraction:
     norm = np.linalg.inv(np.einsum('aib,aic->abc', fit_data,
         fit_data/np.expand_dims(self.data_coeffs_var, -1)))
     fit = np.einsum('abi,ai->ab', norm, 
-        np.sum(fit_data*np.expand_dims(calc_coeffs, -1)\
+        np.sum(fit_data*np.expand_dims(c_calc, -1)\
           /np.expand_dims(self.data_coeffs_var,-1),
           -2))
     fit_std = np.sqrt(
@@ -2450,7 +2284,7 @@ class density_extraction:
           color='gray', alpha=0.7, label="Data") 
       axs0[il].plot(self.dom, smoothed_data[il]/I_init[0,0],
           color='gray', ls='--', label="Smoothed Data")
-      axs0[il].plot(self.dom, calc_coeffs[il], color='k', label="Simulation")
+      axs0[il].plot(self.dom, c_calc[il], color='k', label="Simulation")
     self.data_coeffs += self.offset
     for il in range(self.data_LMK.shape[0]):
       axs0[il].plot(self.dom, (smoothed_data+self.offset)[il]/self.I,
@@ -2642,12 +2476,6 @@ class density_extraction:
     Bessel Function Error" output and the check_jl{l}_calculations
     plots to make sure the residual is negligable for the data or 
     simulation's reciprocal space range.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
     """
 
     # By default use scipy implementation
@@ -2669,12 +2497,12 @@ class density_extraction:
                 keep_inds = np.insert(keep_inds, j, False, axis=0)
                 break
      
-        def calc_even_only(x, N_qbins=-1):
-          return spherical_j_cpp(x, lmk, N_qbins)#[keep_inds]
+        def calculate_even_only(x, N_qbins=-1):
+          return spherical_j_cpp(x, lmk)#[keep_inds]
 
-        self.spherical_j = calc_even_only
+        self.spherical_j = calculate_even_only
       if self.do_multiprocessing:
-        self.calculate_coeffs = self.calculate_coeffs_ensemble_multiProc
+        self.calculate_coeffs = self.calculate_c_ensemble_multiProc
       else:
         self.calculate_coeffs = self.calculate_coeffs_ensemble_cpp
 
@@ -2723,7 +2551,7 @@ class density_extraction:
         #for i in reversed(remove_inds):
         #  del scales[i]
 
-        def calc_even_only(x):
+        def calculate_even_only(x):
           res = []
 
           tt = time.time()
@@ -2781,7 +2609,7 @@ class density_extraction:
           a = np.concatenate(res, 0)
           return np.concatenate(res, 0)
 
-        self.spherical_j = calc_even_only
+        self.spherical_j = calculate_even_only
       self.calculate_coeffs = calculate_coeffs_ensemble_scipy
       """
       def calc_even_only(x):
@@ -3117,7 +2945,7 @@ class density_extraction:
   #####  Playground  #####
   ########################
 
-  def calc_principleI(self, I_tensor):
+  def calculate_principleI(self, I_tensor):
     """
     I_tensor: Moment of inertia tensor
     Calculate the principal moments of inertia by solving for 
@@ -3143,7 +2971,7 @@ class density_extraction:
     return np.array([I0, I1, I2])
 
 
-  def calc_principal_axis(self, I, Ip):
+  def calculate_principal_axis(self, I, Ip):
     """
     I: Moment of intertia tensor
     Ip: array of principal moment of inertia to find association vector
@@ -3231,13 +3059,13 @@ class density_extraction:
     self.data_Mcalc = np.reshape(lmk[:,1], (-1, 1, 1))
     self.data_Kcalc = np.reshape(lmk[:,2], (-1, 1, 1))
 
-    calc_coeffs = self.calculate_coeffs(R)
+    c_calc = self.calculate_coeffs(R)
     
     self.data_Lcalc = temp_data_Lcalc
     self.data_Mcalc = temp_data_Mcalc
     self.data_Kcalc = temp_data_Kcalc
 
-    return calc_coeffs
+    return c_calc
 
   """
 
