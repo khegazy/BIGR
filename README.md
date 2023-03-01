@@ -1,7 +1,7 @@
 Molecular Geometry Retrieval Using Bayesian Inferencing
 =======================================================
 
-This package approximates the probability distribution |Psi(r,t)|^2 of time dependent molecular geometries measured by ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy (althought not required) to access the molecular frame via a system of integral equations. This package sets up those molecular frame dependent equations and solves for the given posterior P(r,t|Theta) which approximates |Psi(r,t)|^2. Using the Metropolis-Hastings algorithm, implemented by the [emcee](https://emcee.readthedocs.io/en/stable/) package, we solve retrieve the marginalized posterior P(Theta,t). Using the `mode_search.py` method one can find the optimal Theta parameters that produces a posterior that best describes the observed data (C coefficients). This method is fully described in this [publication]().
+This package approximates the probability distribution |Psi(r,t)|^2 of time dependent molecular geometries measured by ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy (althought not required) to access the molecular frame via a system of integral equations. This package sets up those molecular frame dependent equations and solves for the given posterior P(r,t|Theta) which approximates |Psi(r,t)|^2. Using the Metropolis-Hastings algorithm, implemented by the [emcee](https://emcee.readthedocs.io/en/stable/) package, we solve retrieve the marginalized posterior P(Theta,t). Using the `mode_search.py` method one can find the optimal Theta parameters that produces a posterior that best describes the observed data (C coefficients). This method is fully described in this [publication](https://arxiv.org/abs/2207.09600).
 
 
 Setup and Prerequisites
@@ -59,7 +59,7 @@ Project Organization
     │   │                              marginal probability P(Theta, C)
     │   ├── mode_search.py          <- Module of the functions used in the mode search algorithm 
     │   ├── plot_functions.py       <- Plotting functions for the NO2 data set
-    │   ├── spherical_j_cpp.py      <- Python module porting the C++ functions into python functions
+    │   ├── c_calc_extensions.py    <- Python module porting the C++ functions into python functions
     │   ├── NO2.py                  <- Python module containing the probability calculations, ensemble
     │   │                              generators, scattering amplitude and ADM import functions, and
     │   │                              MCMC setup functions unique to the NO2 simulation. 
@@ -150,12 +150,13 @@ The files `build_posterior_template.py`, `mode_search_template.py`, and `modules
 
 NO2 Analysis
 ------------
-The NO2 folder contains the parameters and scripts used to both simulate the NO2 C coefficients and retrieve the molecular frame nuclear probability distribution |Psi(r)|^2 as outlined in ...... .
+The NO2 folder contains the parameters and scripts used to both simulate the NO2 C coefficients and retrieve the molecular frame nuclear probability distribution |Psi(r)|^2 as outlined in 
+[Bayesian inferencing and deterministic anisotropy for the retrieval of the molecular geometry |Ψ(r)|2 in gas-phase diffraction experiments](https://arxiv.org/abs/2207.09600).
 
 
 Attributions
 ------------
-Please cite Kareem Hegazy, Varun Makhija, Ryan Coffee, et. al. if you found this code useful in your research. Below is the BibTeX entry for the paper.
+Please cite [Bayesian inferencing and deterministic anisotropy for the retrieval of the molecular geometry |Ψ(r)|2 in gas-phase diffraction experiments](https://arxiv.org/abs/2207.09600) if you used this package.
 
 
 License
