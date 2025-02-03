@@ -14,18 +14,20 @@ def get_parameters(run=None, molecule=None):
       "multiprocessing"    : 10,
       "Nwalkers"           : 100,
       "run_limit"          : 100,
-      "min_acTime_steps"   : 3000,
+      "min_acTime_steps"   : 1000,
       "simulate_data"      : True,
       "simulate_error"     : ("StoN", (100, [0.5,4])),#("constant_sigma", 0.163)
-      "N_mode_samples"     : 50,
-      "mode_std_grid"      : np.array([-1, 0, 1]),
+      "N_mode_samples"     : 30,
+      "mode_std_grid"      : np.array([-1.5, -1, 0, 1, 1.5]),
+      #"mode_std_grid"      : np.array([-1, 0, 1]),
       "mode_tolerance"     : 0.0001,
+      "mode_std_decay"     : 0.25, 
       "plot_setup"         : True,
-      "plot_progress"      : False,
+      "plot_progress"      : True,
       "dom"                : None,
       "fit_bases"          : None,
       "isMS"               : False,
-      "fit_range"          : [0.5, 10],
+      "fit_range"          : [0.5, 20],
       "elEnergy"           : 3.7e6,
       "sim_thetas"         : None,
       "init_thetas"        : None,
@@ -52,7 +54,7 @@ def get_parameters(run=None, molecule=None):
   # Setup XYZ file
   if data_parameters["molecule"] == "NO2":
       data_parameters["init_geo_xyz"] = "XYZ/NO2.xyz"
-  elif data_parameters["molecule"] == "NO2_symbreak":
+  elif data_parameters["molecule"] == "NO2_symbreak" or data_parameters["molecule"] == "NO2_play":
       data_parameters["init_geo_xyz"] = "XYZ/NO2_symbreak.xyz"
 
   # Setup multiproccessing and Nwalkers
@@ -66,6 +68,7 @@ def get_parameters(run=None, molecule=None):
     data_parameters["run_limit"] = 100
 
   data_parameters = setup_dom(data_parameters)
+  data_parameters = setup_init_thetas(data_parameters)
 
   # Setup the LMK contributions used
   FB = []
@@ -83,32 +86,6 @@ def get_parameters(run=None, molecule=None):
      #   FB.append(np.array([l,0,k]))
   FB = np.array(FB).astype(int)
   data_parameters["fit_bases"] = FB
-
-  if data_parameters["experiment"] == "3dof":
-    data_parameters["sim_thetas"] = np.array(
-        [1.35, 0.03, 1.05, 0.02, 2.34, 0.01])
-    if data_parameters["density_model"] == "delta":
-      data_parameters["init_thetas"] =\
-          data_parameters["sim_thetas"][np.array([0,2,4], dtype=int)]
-    elif data_parameters["density_model"] == "PDF":
-      data_parameters["init_thetas"] = copy(data_parameters["sim_thetas"])
-    if "single" in data_parameters["molecule"]:
-      data_parameters["sim_thetas"] =\
-          data_parameters["sim_thetas"][np.array([0,2,4], dtype=int)]
-  elif data_parameters["experiment"] == "2dof":
-    data_parameters["sim_thetas"] = np.array(
-        [1.193, 0.02, 2.34, 0.01])
-    if data_parameters["density_model"] == "delta":
-      data_parameters["init_thetas"] =\
-          data_parameters["sim_thetas"][np.array([0,2], dtype=int)]
-    elif data_parameters["density_model"] == "PDF":
-      data_parameters["init_thetas"] = copy(data_parameters["sim_thetas"])
-    if "single" in data_parameters["molecule"]:
-      data_parameters["sim_thetas"] =\
-          data_parameters["sim_thetas"][np.array([0,2], dtype=int)]
-  
-  data_parameters["sim_thetas"] =\
-      np.concatenate([data_parameters["sim_thetas"], [51]])
 
   # De Broglie wavelength angs
   C_AU = 1./0.0072973525664
@@ -134,14 +111,43 @@ def get_parameters(run=None, molecule=None):
   
   return data_parameters
 
+
 def setup_dom(data_parameters):
   # Setup dimension of measurement (dom)
   N = (data_parameters["fit_range"][1] - data_parameters["fit_range"][0])\
       /data_parameters["q_per_pix"]
-  data_parameters["NradAzmBins"] = N
+  data_parameters["NradAzmBins"] = int(N) + 1
   data_parameters["dom"] = np.linspace(0, data_parameters["fit_range"][1],
       int(N*(1+data_parameters["fit_range"][0]/data_parameters["fit_range"][1])))
 
   return data_parameters
 
 
+def setup_init_thetas(data_parameters):
+  if data_parameters["experiment"] == "3dof":
+    data_parameters["sim_thetas"] = np.array(
+        [1.35, 0.03, 1.05, 0.02, 2.34, 0.01])
+    if data_parameters["density_model"] == "delta":
+      data_parameters["init_thetas"] =\
+          data_parameters["sim_thetas"][np.array([0,2,4], dtype=int)]
+    elif data_parameters["density_model"] == "PDF":
+      data_parameters["init_thetas"] = copy(data_parameters["sim_thetas"])
+    if "single" in data_parameters["molecule"]:
+      data_parameters["sim_thetas"] =\
+          data_parameters["sim_thetas"][np.array([0,2,4], dtype=int)]
+  elif data_parameters["experiment"] == "2dof":
+    data_parameters["sim_thetas"] = np.array(
+        [1.193, 0.02, 2.34, 0.01])
+    if data_parameters["density_model"] == "delta":
+      data_parameters["init_thetas"] =\
+          data_parameters["sim_thetas"][np.array([0,2], dtype=int)]
+    elif data_parameters["density_model"] == "PDF":
+      data_parameters["init_thetas"] = copy(data_parameters["sim_thetas"])
+    if "single" in data_parameters["molecule"]:
+      data_parameters["sim_thetas"] =\
+          data_parameters["sim_thetas"][np.array([0,2], dtype=int)]
+
+  data_parameters["sim_thetas"] =\
+      np.concatenate([data_parameters["sim_thetas"], [51]])
+
+  return data_parameters

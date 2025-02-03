@@ -38,33 +38,38 @@ def main(data_params):
     """
 
     #####  Setup ensemble/density generators and log prior  #####
-    if "density_model" in data_params:
-        if data_params["density_model"] == "PDF":
-            input_ensemble_generator = molecule_ensemble_generator
-            input_density_generator = molecule_ensemble_generator
-            if use_2dof or data_params["experiment"] == "2dof":
-                input_log_prior = log_prior_2dof_gauss
-            elif data_params["experiment"] == "3dof":
-                input_log_prior = log_prior_3dof_gauss
-            else:
-                raise ValueError("Cannot handle experiment {}".format(
-                        data_params["experiment"]))
-        elif data_params["density_model"] == "delta":
-            input_ensemble_generator = single_molecule_generator
-            input_density_generator = single_molecule_generator
-            if use_2dof or data_params["experiment"] == "2dof":
-                input_log_prior = log_prior_2dof_delta
-            elif data_params["experiment"] == "3dof":
-                input_log_prior = log_prior_3dof_delta
-            else:
-                raise ValueError("Cannot handle experiment {}".format(
-                        data_params["experiment"]))
-
-        else:
-            raise ValueError("Cannot handle density model {}".format(
-                    data_params["density_model"]))
+    if "single" in data_parameters["molecule"]:
+      input_ensemble_generator = single_molecule_generator
     else:
-        raise ValueError("Must provide density_model parameter")
+      input_ensemble_generator = molecule_ensemble_generator
+
+    if "density_model" in data_parameters:
+      if data_parameters["density_model"] == "PDF":
+        input_density_generator = molecule_ensemble_generator
+        if args.do_2dof or data_parameters["experiment"] == "2dof":
+          input_log_prior = log_prior_2dof_gauss
+        elif data_parameters["experiment"] == "3dof":
+          input_log_prior = log_prior_3dof_gauss
+        else:
+          raise ValueError("Cannot handle experiment {}".format(
+              data_parameters["experiment"]))
+
+      elif data_parameters["density_model"] == "delta":
+        input_density_generator = single_molecule_generator
+        if args.do_2dof or data_parameters["experiment"] == "2dof":
+          input_log_prior = log_prior_2dof_delta
+        elif data_parameters["experiment"] == "3dof":
+          input_log_prior = log_prior_3dof_delta
+        else:
+          raise ValueError("Cannot handle experiment {}".format(
+              data_parameters["experiment"]))
+
+      else:
+        raise ValueError("Cannot handle density model {}".format(
+            data_parameters["density_model"]))
+    else:
+      raise ValueError("Must provide default density generator")
+
 
     extractor = density_extraction(data_params,
             get_molecule_init_geo,
@@ -111,52 +116,111 @@ def main(data_params):
             cs_fxn, data_params["mode_std_grid"], get_theta_search_input,
             extractor.get_fileName, tol=data_params["mode_tolerance"],
             N_best_ths=N_samples)
-    print("INFO: Time to converge: {}".format((time.time() - tic)/60))
+    print("INFO: Time to converge: {} minutes".format((time.time() - tic)/60))
+
+
+
+
+
+def update_parameters_cluster(data_parameters, index):
+
+  base_q = 10.0
+  q_max = [2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5, 20.0]
+  base_ston = 100
+  ston = [12.5, 25, 50, 200, 400]
+  base_lmk = [100, 100]
+  lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
+  options = []
+
+  for dist in ["PDF", "delta"]:
+    for q in q_max:
+      adm_params = copy(data_parameters["ADM_params"])
+      adm_params["temperature"] = base_lmk[0]
+      adm_params["probe_FWHM"] = base_lmk[1]
+      options.append({
+        "density_model" : dist,
+        "fit_range"  : [0.5, q],
+        "ADM_params" : copy(adm_params),
+        "simulate_error" : ("StoN", (base_ston, [0.5,4]))})
+      if q <= 7.5:
+        options[-1]["multiprocessing"] = 16
+        options[-1]["min_acTime_steps"] = 2000
+      if q <= 2.5:
+        options[-1]["min_acTime_steps"] = 3000
+
+    for q in q_max:
+      if q == base_q:
+        continue
+      adm_params = copy(data_parameters["ADM_params"])
+      adm_params["temperature"] = base_lmk[0]
+      adm_params["probe_FWHM"] = base_lmk[1]
+      options.append({
+        "density_model" : dist,
+        "fit_range"  : [0.5, q],
+        "ADM_params" : copy(adm_params),
+        "simulate_error" : ("StoN", (ston[-1], [0.5,4]))})
+      if q <= 5:
+        options[-1]["multiprocessing"] = 16
+        options[-1]["min_acTime_steps"] = 2000
+      if q <= 2.5:
+        options[-1]["min_acTime_steps"] = 3000
+
+    for bg in ston:
+      adm_params = copy(data_parameters["ADM_params"])
+      adm_params["temperature"] = base_lmk[0]
+      adm_params["probe_FWHM"] = base_lmk[1]
+      options.append({
+        "density_model" : dist,
+        "fit_range"  : [0.5, base_q],
+        "ADM_params" : copy(adm_params),
+        "simulate_error" : ("StoN", (bg, [0.5,4]))})
+      if bg <= 50:
+        print(len(options)-1)
+        options[-1]["multiprocessing"] = 16
+        options[-1]["min_acTime_steps"] = 2000
+      if bg <= 25:
+        options[-1]["min_acTime_steps"] = 3000
+
+    for lg in lmk_arr:
+      adm_params = copy(data_parameters["ADM_params"])
+      adm_params["temperature"] = lg[0]
+      adm_params["probe_FWHM"] = lg[1]
+      options.append({
+        "density_model" : dist,
+        "fit_range"  : [0.5, base_q],
+        "ADM_params" : copy(adm_params),
+        "simulate_error" : ("StoN", (base_ston, [0.5,4]))})
+
+  if args.multiProc_ind > len(options) - 1:
+    raise ValueError(
+        "Index {} does not exist in options list that is {} long!".format(
+            args.multiProc_ind, len(options)))
+
+  if options[args.multiProc_ind]["fit_range"][1] != 10 and options[args.multiProc_ind]["simulate_error"][1][0] == 400:
+    sys.exit(0)
+
+  for k,v in options[args.multiProc_ind].items():
+    data_parameters[k] = v
+  data_parameters = setup_dom(data_parameters)
+  data_parameters = setup_init_thetas(data_parameters)
+
+  # Do not use multiprocessing for delta distribution
+  if data_parameters["density_model"] == "delta":
+    if "multiprocessing" in data_parameters:
+      del data_parameters["multiprocessing"]
+
+  return data_parameters
 
 
 if __name__ == "__main__":
     
-    #########################################################
     #####  Setup Method Parameters and Cluster Options  #####
-    #########################################################
-
     data_parameters = get_parameters()
-    use_2dof = False
-    use_mol_ensemble = True
-
-    #####  Change Parameters For Cluster Submissions  #####
-    q_max = [10]
-    #q_max = [5, 7.5, 10, 12.5, 15, 17.5, 20]
-    #sigmas = np.insert(1./(10**np.arange(11)), 0, 0.163)
-    ston = [100]
-    #ston = [25, 50, 200, 400]
-    lmk_arr = [[100, 100]]
-    #lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
-    options = []
-
-    for bg in ston:
-      for lg in lmk_arr:
-        adm_params = copy(data_parameters["ADM_params"])
-        adm_params["temperature"] = lg[0]
-        adm_params["probe_FWHM"] = lg[1]
-        for q in q_max:
-          fit_range = [0.5, q]
-          options.append({
-            "fit_range"  : fit_range,
-            "dom"        : np.linspace(0, q, int(500*(1+fit_range[0]/fit_range[1]))),
-            "ADM_params" : copy(adm_params),
-            "simulate_error" : ("StoN", (bg, [0.5,4]))})
-            #"simulate_error" : ("constant_background", bg)})
-            #"simulate_error" : ("constant_sigma", bg)})
-
-    # Select option if args.multiProc_ind is given
     if args.multiProc_ind is not None:
-      for k,v in options[args.multiProc_ind].items():
-        data_parameters[k] = v
-      data_parameters = setup_dom(data_parameters)
+      data_parameters = update_parameters_cluster(
+          data_parameters, args.multiProc_ind)
 
     #############################
     #####  Run Mode Search  #####
     #############################
     main(data_parameters)
-

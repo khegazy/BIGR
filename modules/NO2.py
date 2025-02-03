@@ -552,6 +552,7 @@ def get_ADMs(params, get_LMK=None):
   normsList = []
 
   # Gather bases
+  print("FFFFFFFFFFF", files)
   for fl in glob.glob(files):
 
     print("\t\tFile: " + fl)
@@ -578,7 +579,6 @@ def get_ADMs(params, get_LMK=None):
       basis_interp = interp1d(times, basis, kind='cubic')
 
     basis = basis_interp(params["eval_times"])
-
     basisList.append(basis)
 
     if params["subtract_mean"]:
@@ -604,12 +604,13 @@ def get_ADMs(params, get_LMK=None):
       fit_bases.append(allBases[lInds*mInds])
       fit_norms.append(allNorms[lInds*mInds])
     LMK = get_LMK
+    fit_bases = np.concatenate(fit_bases, axis=0)
+    fit_norms = np.concatenate(fit_norms, axis=0)
   else:
-    fit_bases = allBases
-    fit_norms = allNorms
+    fit_bases = np.array(allBases)
+    fit_norms = np.array(allNorms)
 
-  return LMK, np.concatenate(fit_bases, axis=0),\
-      np.concatenate(fit_norms, axis=0), params["eval_times"]
+  return LMK, fit_bases, fit_norms, params["eval_times"]
 
 
 

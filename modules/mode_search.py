@@ -81,7 +81,7 @@ def get_theta_search_input(ths_best, ths_cluster_std, data_params):
     ths_range[:,0] = ths_best - ths_cluster_std*1.
     ths_range[:,1] = ths_best + ths_cluster_std*1.
     ths_range[ths_range<0] = 0.001
-    return np.sum(ths_range, axis=1)/2, ths_range[:,1] - ths_range[:,0]
+    return np.sum(ths_range, axis=1)/2, (ths_range[:,1] - ths_range[:,0])/2.
 
 
 def convert_inds(a_min, shp):
@@ -173,6 +173,24 @@ def save_mode_search(fileName,
         h5.create_dataset("chiSq_sampled", data=chiSq_sampled)
 
 
+def get_grid_samples(ths_eval, ths_width, ths_cent, rnd_scale=None):
+    if rnd_scale is None:
+        rnd_scale = np.ones(len(ths_cent))
+    for i in range(len(ths_width)):
+        ths_eval[i] *= rnd_scale[i]*ths_width[i]
+        ths_eval[i] += ths_cent[i]
+    return ths_eval
+
+
+def get_random_samples(Nsamples, ths_cent, ths_width, offset=0, std_scale=1):
+    ths_eval = np.random.normal(
+        loc=offset, scale=std_scale, size=(Nsamples, len(ths_cent)))
+    ths_eval *= ths_width
+    ths_eval += ths_cent
+    ths_eval = ths_eval.transpose()
+    return ths_eval
+
+
 def weight_avg_search(ths_dist, log_prob_dist, data_params,
     cs_fxn, std_steps, get_theta_search, get_fileName,
     N_best_ths=25, tol=0.01, require_min_eval=False, verbose=False):
@@ -254,14 +272,17 @@ def weight_avg_search(ths_dist, log_prob_dist, data_params,
 
             print("test", i, ths_mean, prev_ths_mean, switch_rnd, perc_change)
         prev_ths_mean = ths_mean_history[-2]
+        prev_ths_width = ths_std_history[-2]
+        loop_count = len(ths_mean_history)
     else:
         print("\tDid not find previous results, will now initialize")
+        loop_count = 0
     #ths_mean_history = np.array(ths_mean_history)
     #ths_std_history = np.array(ths_std_history)
 
 
     #####  Mode Search Loop  #####
-    loop_count, same_val_count = 0, 0
+    same_val_count, did_grid = 0, False 
     while convergence_count < 3 or np.all(prev_ths_mean==ths_mean):
         # Sort by most likely samples and drop low probability
         sort_inds = np.argsort(np.abs(log_prob_sampled))
@@ -301,7 +322,13 @@ def weight_avg_search(ths_dist, log_prob_dist, data_params,
             convergence_count = 0
 
         # Switch to grid or random search 
+        prev_ths_width = copy(ths_width)
         ths_cent, ths_width = get_theta_search(ths_mean, ths_std, data_params)
+        if "mode_std_decay" in data_params and loop_count > 0:
+          ths_width = data_params["mode_std_decay"]*ths_width\
+              + (1 - data_params["mode_std_decay"])*prev_ths_width
+        print("INFO: Using center and std: {} +/- {}".format(
+            ths_cent, ths_width))
         if np.all(prev_ths_mean!=ths_mean):
             if np.all(perc_change < 0.03):#np.any(perc_change > 0.05):
                 switch_rnd += 1
@@ -317,29 +344,31 @@ def weight_avg_search(ths_dist, log_prob_dist, data_params,
         # Make sure all the ths_eval are > 0 so as not to waste compute time
         # on unphysical parameters
         while np.sum(ths_mask) == 0:
-            if switch_rnd < 5 or (same_val_count > 0 and same_val_count % 4 == 0):
-                prand = []
-                ths_eval = copy(ths_scale)
-                for i in range(N_ths):
-                    rnd_scale = 1
-                    if np.all(prev_ths_mean == ths_mean):
-                        rnd_scale = np.random.uniform() + 0.5
-                    ths_eval[i] *= rnd_scale*ths_width[i]/2.
-                    ths_eval[i] += ths_cent[i]
-                    prand.append(copy(rnd_scale))
-                print("random scaling", prand)
+            grid_bool = switch_rnd < 5 or (same_val_count > 0 and same_val_count % 4 == 0)
+            grid_bool = grid_bool and loop_count < 100
+            if grid_bool:
+                if not did_grid and same_val_count < 4:
+                    rnd_scale = None 
+                    if same_val_count:
+                        rnd_scale = np.random.uniform(size=N_ths) + 0.5
+                        print("random scaling", rnd_scale)
+                    ths_eval = get_grid_samples(
+                        copy(ths_scale),
+                        ths_width,
+                        ths_cent,
+                        rnd_scale=rnd_scale)
+                    did_grid = True
+                else:
+                    ths_eval = get_random_samples(2500, ths_cent, ths_width)
+                    did_grid = False
             else:
-                rnd_scale = (0.5 + np.random.uniform()*1.5)
-                ths_eval = np.random.normal(size=(1500,6))
-                print("IN RANDOM THETA!!!", rnd_scale, ths_eval[0])
-                ths_eval *= ths_width*rnd_scale/2.
-                ths_eval += ths_cent
-                ths_eval = ths_eval.transpose()
-                #else:
-                #    ind = np.argmax(ths_std)
-                #    ths_eval = np.tile(ths_mean, (500, 1))
-                #    ths_eval[:,ind] += np.linspace(-3.5, 3.5, 500)*ths_std[ind]
-                #    ths_eval = ths_eval.transpose()
+                ths_eval = get_random_samples(
+                    1500,
+                    ths_cent,
+                    ths_width,
+                    offset=0,
+                    std_scale=1)#(0.5 + np.random.uniform()*1.5))
+                did_grid = False
 
             ths_eval = np.reshape(ths_eval, (N_ths, -1))
             ths_mask = np.all(ths_eval > 0, axis=0)

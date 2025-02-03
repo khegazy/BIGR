@@ -526,6 +526,7 @@ class density_extraction:
     print("INFO: Importing ground state geometry")
     self.atom_types, self.atom_positions = get_molecule_init_geo(
         self.data_params)
+    print("INIT GEO", self.atom_positions)
     
     # Setup moment of inertia tensor calculation
     print("INFO: Setting up moment of inertia calculation")
@@ -534,6 +535,7 @@ class density_extraction:
     # Rotate initial geometry into the MF
     print("INFO: Rotating initial state molecular frame")
     self.atom_positions = self.rotate_to_principalI(self.atom_positions)
+    print("rotated GEO", self.atom_positions)
 
     # Import measured data
     print("INFO: Getting data")
@@ -904,7 +906,10 @@ class density_extraction:
       self.dom = self.data_params["dom"]
 
     # Use dom from data when simulating data
-    if self.data_params["dom"] is None or "ata" in self.data_params["dom"]:
+    dom_isdata = isinstance(self.data_params["dom"], str)
+    if dom_isdata:
+      dom_isdata = "ata" in self.data_params["dom"]
+    if dom_isdata or self.data_params["dom"] is None:
       print("INFO: Using dom from data")
       self.dom = self.dom_
     if "simulate_error" in self.data_params:
@@ -1342,11 +1347,11 @@ class density_extraction:
     phi = np.arctan2(r[:,:,:,1], r[:,:,:,0])
 
     # Distances occur twice in upper and lower triangle of [atoms,atoms,polar]
-    doublt_dists = np.concatenate([np.expand_dims(dR,-1),\
+    double_dists = np.concatenate([np.expand_dims(dR,-1),\
       np.expand_dims(theta, -1),\
       np.expand_dims(phi, -1)], axis=-1)
 
-    return double_dists[self.dist_inds]
+    return double_dists[:,self.dist_inds[0],self.dist_inds[1],:]
 
 
   def rotate_to_principalI(self, molecules):
@@ -1365,8 +1370,10 @@ class density_extraction:
     """
 
     # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], -2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    molecules -= np.sum(
+        molecules*self.mass[:,0],
+        -2, keepdims=True)\
+            /np.sum(self.mass[:,0])
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor(molecules)
@@ -1392,8 +1399,10 @@ class density_extraction:
     """
 
     # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    molecules -= np.sum(
+        molecules*self.mass[:,0],
+        axis=-2, keepdims=True)\
+        /np.sum(self.mass[:,0])
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor_ensemble(molecules)
@@ -1425,9 +1434,9 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate diffraction response
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
-        *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
-    J = sp.special.spherical_jn(self.data_Lcalc, 
+    c_prefactors = (-1)**self.data_Kcalc*np.complex(0,1)**self.data_Lcalc\
+        *32*np.pi**3/(2*self.data_Lcalc + 1)
+    j = sp.special.spherical_jn(self.data_Lcalc, 
         self.calc_dom*np.expand_dims(dists[:,0], axis=-1))
     Y = sp.special.sph_harm(-1*self.data_Kcalc, self.data_Lcalc,
         np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1),
@@ -1435,7 +1444,7 @@ class density_extraction:
 
 
     # Sum all pair-wise contributions
-    c_calc = np.sum(np.real(self.dist_sms_scat_amps*C*J*Y), axis=1)
+    c_calc = np.sum(np.real(self.dist_sms_scat_amps*c_prefactors*j*Y), axis=1)
 
     # Normalize by I0
     c_calc *= self.I
@@ -1473,13 +1482,13 @@ class density_extraction:
     # Calculate diffraction response
     #ttic = time.time()
     #tic = time.time()
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
-        *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
+    c_prefactors = (-1)**self.data_Kcalc*np.complex(0,1)**self.data_Lcalc\
+        *32*np.pi**3/(2*self.data_Lcalc + 1)
     #print("\tC time:", C.shape, time.time()-tic)
     #tic = time.time()
     inp = np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
         *np.expand_dims(dists[:,0], axis=1)
-    J = self.spherical_j(inp)
+    j = self.spherical_j(inp)
     #print("\tJ time:", inp.shape, J.shape, time.time()-tic)
     #tic = time.time()
     Y = sp.special.sph_harm(
@@ -1494,7 +1503,7 @@ class density_extraction:
     #tic = time.time()
     c_calc = np.sum(np.real(
         np.expand_dims(np.expand_dims(self.dist_sms_scat_amps, -1), -1)\
-        *np.expand_dims(np.expand_dims(C, -1), -1)*J*Y), axis=1)
+        *np.expand_dims(np.expand_dims(c_prefactors, -1), -1)*j*Y), axis=1)
     #print("\tsum time:", time.time()-tic)
 
     #plt.hist(c_calc[-1,2,:], bins=25, weights=w[:,0])
@@ -1609,9 +1618,8 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate C coefficient prefactors
-    c_prefactor = np.complex(0,1)**self.data_LMK[:,0]*8*np.pi**2\
-        /(2*self.data_LMK[:,0] + 1)\
-        *np.sqrt(4*np.pi*(2*self.data_LMK[:,0] + 1))
+    c_prefactor = (-1)**self.data_LMK[:,2]*np.complex(0,1)**self.data_LMK[:,0]\
+        *32*np.pi**3/(2*self.data_LMK[:,0] + 1)
    
     # Calculate spherical harmonics
     Ylk = sp.special.sph_harm(
@@ -1832,8 +1840,11 @@ class density_extraction:
           < self.sampler.iteration)
 
     while not self.has_converged or not sample_limit:
+      print("walker init!", walker_init_pos.shape)
       # Run MCMC
-      self.sampler.run_mcmc(walker_init_pos, Nsteps, progress=True)
+      tic = time.time()
+      self.sampler.run_mcmc(walker_init_pos, Nsteps, progress=False)
+      print("Finished mcmc step in {}s".format(time.time() - tic))
 
       # Calculate mean autocorrelation time
       tau = self.sampler.get_autocorr_time(tol=0)
@@ -1877,7 +1888,7 @@ class density_extraction:
       self.save_emcee_backend()
 
       # End Jobs that take too long
-      if np.amax(tau) > 500 and self.sampler.iteration/np.amax(tau) > 15:
+      if np.amax(tau) > 1000 and self.sampler.iteration/np.amax(tau) > 50:
         break
 
       # Start new mcmc run at the end of the previous
@@ -2147,11 +2158,11 @@ class density_extraction:
     if plot and self.plot_setup:
       plot_coeffs = self.I*c_calc[0]
       for i in range(plot_coeffs.shape[0]):
-        plt.errorbar(self.dom, self.data_coeffs[i,:], np.sqrt(self.data_coeffs_var[i,:]))
-        plt.plot(self.dom, plot_coeffs[i,:], '-k')
+        fig, ax = plt.subplots()
+        ax.errorbar(self.dom, self.data_coeffs[i,:], np.sqrt(self.data_coeffs_var[i,:]))
+        ax.plot(self.dom, plot_coeffs[i,:], '-k')
         fileName = os.path.join("plots", self.get_fileName())
-        plt.savefig(fileName + "_scaleInit-{}-{}-{}.png".format(*self.data_LMK[i,:]))
-        plt.close()
+        fig.savefig(fileName + "_scaleInit-{}-{}-{}.png".format(*self.data_LMK[i,:]))
 
 
   def fit_I0(self, c_calc, data=None, var=None, return_vals=False):
@@ -2795,6 +2806,7 @@ class density_extraction:
         -------
     """
 
+    # Signal to noise for scaling the error
     s2n_scale, s2n_range = error_options
 
     # Get ADMs
@@ -2844,7 +2856,7 @@ class density_extraction:
     else:
       sim_LMK = self.data_LMK
       sim_LMK_weights = self.ADMs.transpose()*azim_scale
-
+    
     # Simulate Diffraction
     if len(sim_LMK_weights.shape) == 2 and sim_LMK_weights.shape[0] > 10:
       mol_diffraction = []
@@ -2896,16 +2908,6 @@ class density_extraction:
         rad_inds, N, image_stds=np.sqrt(s2n_var),
         chiSq_fit=True)
         
-    print("fin shapes", img_fits.shape, img_covs.shape)
-    """
-    for i in range(4):
-      plt.pcolormesh(img_fits[:,4:,i])
-      plt.colorbar()
-      plt.savefig("testinfits{}.png".format(i))
-      plt.close()
-    """
-
-
     s2n_range = [
         np.argmin(np.abs(s2n_range[0]-self.data_params["dom"])),
         np.argmin(np.abs(s2n_range[1]-self.data_params["dom"]))]
