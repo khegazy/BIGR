@@ -52,11 +52,32 @@ cd NO2
 MPLBACKEND=Agg ../.venv/bin/python build_posterior.py     # ~10 min: posterior P(Theta|C)
 MPLBACKEND=Agg ../.venv/bin/python mode_search.py         # mode Theta*
 
-# 6. plots
+# 6. plots -- open the notebook and run the "Fast run" section (cells 3-8) only
 cd ..
-MPLBACKEND=Agg .venv/bin/python -m nbconvert --to notebook --execute --inplace \
-    --ExecutePreprocessor.timeout=1800 NO2/analyze_results.ipynb
+.venv/bin/python -m ipykernel install --user --name bigr --display-name "BIGR (.venv)"
+.venv/bin/jupyter lab NO2/analyze_results.ipynb    # select the "BIGR (.venv)" kernel
 ```
+
+**Do not execute the whole notebook.** Only the first nine cells belong to the fast run;
+everything after them is the paper's parameter sweeps and needs its own completed MCMC run per
+configuration (hours to days). To regenerate the fast-run plots headless, execute just that
+prefix:
+
+```bash
+.venv/bin/python - <<'EOF'
+import json, copy
+nb = json.load(open("NO2/analyze_results.ipynb"))
+sub = copy.deepcopy(nb); sub["cells"] = nb["cells"][:9]
+json.dump(sub, open("NO2/_fast.ipynb", "w"), indent=1)
+EOF
+cd NO2 && MPLBACKEND=Agg ../.venv/bin/python -m nbconvert --to notebook --execute --inplace \
+    --ExecutePreprocessor.kernel_name=bigr --ExecutePreprocessor.timeout=1800 _fast.ipynb
+rm _fast.ipynb            # plots are already written to NO2/plots/...
+```
+
+The trimmed notebook must live in `NO2/` because the kernel's working directory follows the
+notebook's location, and `from parameters import *` plus the cwd-relative `.so` load both
+require it.
 
 Do **not** pass `--multiProc_ind` — see [Gotchas](#11-gotchas).
 
