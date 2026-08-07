@@ -15,6 +15,25 @@ from matplotlib import cm, lines
 from modules.density_extraction import density_extraction
 
 
+# Number of grid points per structural degree of freedom used by
+# molecule_ensemble_generator to discretise the normal distribution P^(N)(R|Theta,C).
+# The ensemble is the full outer product, so the cost of every likelihood evaluation
+# scales as N**3 -- this is by far the biggest lever on MCMC wall-clock time:
+#
+#   N = 19 (the original value)  -> 6859 geometries/walker, ~2.9 s per MCMC step
+#   N = 11                       -> 1331 geometries/walker, ~0.6 s per MCMC step
+#   N =  7                       ->  343 geometries/walker, fastest, coarsest
+#
+# The grid spans +/-7 sigma, so N sets how finely the Gaussian is sampled (N=11 gives a
+# spacing of 1.4 sigma). Simulated data and the fitted model both go through this
+# function, so the retrieval stays self-consistent at any N; a small N mainly degrades
+# how faithfully the discrete ensemble represents a true normal distribution.
+#
+# Changing this invalidates the save_sim_data cache (N is not part of the file name):
+# delete output/saved_simulations/ afterwards.
+ENSEMBLE_GRID_N = 11
+
+
 ########################
 #####  Log Priors  #####
 ########################
@@ -369,7 +388,7 @@ def molecule_ensemble_generator(thetas):
     N = int(thetas[0,6])
     thetas = thetas[:,:-1]
   else:
-    N = 19
+    N = ENSEMBLE_GRID_N
   std_ = 7
 
   d1_distribution_vals  = np.linspace(d1-std_1*std_, d1+std_1*std_, N)

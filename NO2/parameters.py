@@ -28,7 +28,7 @@ def get_parameters(run=None, molecule=None):
       "Nwalkers"           : 16,
       "run_limit"          : 50,
       "min_acTime_steps"   : 5,
-      "max_iterations"     : 2000,
+      "max_iterations"     : 1000,
       "simulate_data"      : True,
       # Error model. constant_sigma is the default here because the StoN (Poissonian)
       # model, although it runs end to end, cannot produce a usable signal-to-noise with
