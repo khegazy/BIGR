@@ -116,8 +116,12 @@ if __name__ == "__main__":
   #sigmas = np.insert(1./(10**np.arange(11)), 0, 0.163)
   ston = [100]
   #ston = [25, 50, 100, 200, 400]
-  lmk_arr = [[100, 100]]
-  lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
+  # (ADM temperature [K], probe FWHM [fs]) pairs for the --multiProc_ind sweep. Keep this
+  # list identical to the one in mode_search.py: it feeds ADM_params, which get_fileName
+  # encodes into the output folder, so a mismatch makes mode_search.py look for a backend
+  # that build_posterior.py never wrote.
+  lmk_arr = [[30, 100]]
+  #lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
   options = []
 
   for bg in ston:

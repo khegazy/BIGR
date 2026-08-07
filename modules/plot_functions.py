@@ -51,7 +51,7 @@ def plot3d(samples, ranges, ax=None, scat_inds=None, fileName="density3d.png",
   size=0.005
   if ax is None:
       fig = plt.figure(figsize=(10,10))
-      ax = fig.gca(projection='3d')
+      ax = fig.add_subplot(projection='3d')
   X,Y,Z = samples[:,0], samples[:,1], samples[:,2] #(angles[:] - np.mean(angles[:]))*np.sqrt(36) + angles[:]
 
   print(np.mean(X), np.mean(Y), np.mean(Z))

@@ -34,7 +34,7 @@ def nCk_np(n, k):
   return factorial(n)/(factorial(k)*factorial(n-k))
 
 def Ylm_calc(m, l, azim, polar):
-  return sp.special.sph_harm(m, l, azim, polar, dtype=np.complex64)
+  return sp.special.sph_harm_y(l, m, polar, azim).astype(np.complex64)
   #return np.abs(-1)**np.abs(m)*sp.special.sph_harm(m, l, azim, polar, dtype=np.complex64)
 
 def get_wignerD_3d(phi_ea, theta_ea, chi_ea, l, m, k):
@@ -83,13 +83,13 @@ def get_wignerD_3d(phi_ea, theta_ea, chi_ea, l, m, k):
   #print("d", d)
   #print("jac", jac)
   #print("l", lmbd)
-  #print("mmmmmmmmmmm", m, np.complex(0,-1))
+  #print("mmmmmmmmmmm", m, (-1j))
   #print("phi", phi_ea)
-  #print("res",np.exp(np.complex(0,-1)*m*phi_ea))
+  #print("res",np.exp((-1j)*m*phi_ea))
   # Calculate D matrix element
-  D_ME = np.exp(np.complex(0,-1)*m*phi_ea)*d*np.exp(np.complex(0,-1)*k*chi_ea)
+  D_ME = np.exp((-1j)*m*phi_ea)*d*np.exp((-1j)*k*chi_ea)
   #D_ME = d*(np.cos(-1*m*phi_ea) + np.cos(-1*k*chi_ea)\
-  #    + np.complex(0,1)*(np.sin(-1*m*phi_ea) + np.sin(-1*k*chi_ea)))
+  #    + 1j*(np.sin(-1*m*phi_ea) + np.sin(-1*k*chi_ea)))
   #print(-1*m*phi_ea)
 
   return D_ME.transpose().astype(np.complex64)
@@ -205,7 +205,7 @@ def diffraction_calculation_numeric(
   """
   smearing_weights = np.expand_dims(np.expand_dims(smearing_weights, -1), -1)
   diffraction = np.zeros((int(detector_shape[0]), int(detector_shape[1])),
-      dtype=np.complex)
+      dtype=complex)
 
   #####  Loop over smearing points  #####
   for imol in range(len(atom_distances_polar)):
@@ -412,21 +412,23 @@ def molecular_diffraction_calculation(
       dist_inds = (np.array(dist_inds1), np.array(dist_inds2))
       dists = all_dists[dist_inds]
 
-      C = ((-1)**K)*np.complex(0,1)**L
+      C = ((-1)**K)*1j**L
       C *= 32*np.pi**3/(2*L + 1)
       J = sp.special.spherical_jn(L,
           q_map[:,:]*np.expand_dims(np.expand_dims(dists[:,0], axis=-1), -1))
-      Y = sp.special.sph_harm(-1*K, L,
-          np.expand_dims(np.expand_dims(dists[:,2], axis=-1), axis=-1),
-          np.expand_dims(np.expand_dims(dists[:,1], axis=-1), axis=-1))
+      # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar):
+      # dists[:,1] is the polar and dists[:,2] the azimuthal angle.
+      Y = sp.special.sph_harm_y(L, -1*K,
+          np.expand_dims(np.expand_dims(dists[:,1], axis=-1), axis=-1),
+          np.expand_dims(np.expand_dims(dists[:,2], axis=-1), axis=-1))
 
 
       _diffraction = dist_scat_amps*C*J*Y
       diffraction += np.sum(np.sum(
           np.expand_dims(LMK_weights, (-1, -2, -3))*_diffraction\
-          *sp.special.sph_harm(-1*M, L,
-              np.expand_dims(phi_lf, axis=0),
-              np.expand_dims(theta_lf, axis=0)),
+          *sp.special.sph_harm_y(L, -1*M,
+              np.expand_dims(theta_lf, axis=0),
+              np.expand_dims(phi_lf, axis=0)),
               axis=-3), axis=-3)
 
   diffraction /= detector_dist

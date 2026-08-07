@@ -8,10 +8,22 @@ from numpy.polynomial import Legendre
 
 def normal_eqn_vects(X, Y, W, var):
     overlap = np.einsum('bai,bi,bci->bac', X, W, X, optimize='greedy')
-    if np.any(np.linalg.det(overlap) == 0.0):
-        print("Overlap matrix is singular, should figure out why")
-        return np.ones((Y.shape[0], X.shape[0]))*np.nan, np.ones((Y.shape[0], X.shape[0], X.shape[0]))*np.nan
-    
+    # Rank-deficiency test. This originally compared the determinant to exactly 0.0, but a
+    # rank-deficient overlap matrix generally yields a tiny denormal determinant rather than
+    # a true zero, so the check slipped through and np.linalg.inv raised LinAlgError. It
+    # fires at small radii, where there are fewer pixels on the ring than Legendre orders
+    # being fit (radius 0 is a single pixel). Returning NaN there is the original intent;
+    # those radii sit at q below fit_range and are masked out downstream.
+    # X is [batch, n_legendre, n_angles], so the fit/covariance widths are X.shape[1]. The
+    # original NaN return used X.shape[0] (the batch size), which produced arrays of the
+    # wrong width and made the caller's concatenate fail.
+    det = np.linalg.det(overlap)
+    if (not np.all(np.isfinite(det))) or np.any(
+            np.linalg.cond(overlap) > 1./np.finfo(overlap.dtype).eps):
+        n_lg = X.shape[1]
+        return (np.ones((Y.shape[0], n_lg))*np.nan,
+                np.ones((Y.shape[0], n_lg, n_lg))*np.nan)
+
     # Fit
     denom = np.linalg.inv(overlap)
     numer = np.einsum('bai,bi,bi->ba', X, W, Y, optimize='greedy')

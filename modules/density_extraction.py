@@ -18,12 +18,16 @@ import matplotlib.pyplot as plt
 
 from modules.c_calc_extensions import calculate_c_cpp
 from modules.c_calc_extensions import spherical_j as spherical_j_cpp
-if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules"):
-  sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
-from diffraction_simulation import diffraction_calculation
-if os.path.exists("/cds/home/k/khegazy/baseTools/modules"):
-  sys.path.append("/cds/home/k/khegazy/baseTools/modules")
-from fitting import fit_legendres_images
+# diffraction_simulation and fitting are not part of BIGR; they are vendored under
+# external_artifacts/modules (see external_artifacts/README.md). They are imported lazily
+# inside simulate_error_StoN, the only function that uses them, so that every other code
+# path -- the constant_sigma/constant_background error models, mode_search, and the
+# results/plotting paths -- runs without them.
+# realpath, not abspath: this file is normally reached through the NO2/modules symlink, so
+# abspath would resolve the repo root to NO2/ and miss external_artifacts entirely.
+sys.path.append(os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+    "external_artifacts", "modules"))
 
 
 class density_extraction:
@@ -1012,7 +1016,7 @@ class density_extraction:
         self.simulate_error_data()
       elif "onstant_background" in error_type:
         variance_scale = error_options
-        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=np.float)
+        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=float)
         if self.data_params["isMS"]:
           self.experimental_var /= self.atm_scat**2
         
@@ -1425,13 +1429,15 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate diffraction response
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
+    C = 1j**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
     J = sp.special.spherical_jn(self.data_Lcalc, 
         self.calc_dom*np.expand_dims(dists[:,0], axis=-1))
-    Y = sp.special.sph_harm(-1*self.data_Kcalc, self.data_Lcalc,
-        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1),
-        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1))
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar); dists[:,1] is the
+    # polar and dists[:,2] the azimuthal angle (see calculate_dists).
+    Y = sp.special.sph_harm_y(self.data_Lcalc, -1*self.data_Kcalc,
+        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1),
+        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1))
 
 
     # Sum all pair-wise contributions
@@ -1473,7 +1479,7 @@ class density_extraction:
     # Calculate diffraction response
     #ttic = time.time()
     #tic = time.time()
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
+    C = 1j**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
     #print("\tC time:", C.shape, time.time()-tic)
     #tic = time.time()
@@ -1482,11 +1488,12 @@ class density_extraction:
     J = self.spherical_j(inp)
     #print("\tJ time:", inp.shape, J.shape, time.time()-tic)
     #tic = time.time()
-    Y = sp.special.sph_harm(
-        -1*np.expand_dims(np.expand_dims(self.data_Kcalc, -1), -1),
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar).
+    Y = sp.special.sph_harm_y(
         np.expand_dims(np.expand_dims(self.data_Lcalc, -1), -1),
-        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=2),
-        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=2))
+        -1*np.expand_dims(np.expand_dims(self.data_Kcalc, -1), -1),
+        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=2),
+        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=2))
     #print("\tY:", Y.shape, time.time()-tic)
     #print("\tCJY time:", time.time()-ttic)
 
@@ -1609,16 +1616,17 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate C coefficient prefactors
-    c_prefactor = np.complex(0,1)**self.data_LMK[:,0]*8*np.pi**2\
+    c_prefactor = 1j**self.data_LMK[:,0]*8*np.pi**2\
         /(2*self.data_LMK[:,0] + 1)\
         *np.sqrt(4*np.pi*(2*self.data_LMK[:,0] + 1))
    
     # Calculate spherical harmonics
-    Ylk = sp.special.sph_harm(
-        -1*np.expand_dims(self.data_Kcalc, -1),
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar).
+    Ylk = sp.special.sph_harm_y(
         np.expand_dims(self.data_Lcalc, -1),
-        np.expand_dims(dists[:,2], axis=0),
-        np.expand_dims(dists[:,1], axis=0))
+        -1*np.expand_dims(self.data_Kcalc, -1),
+        np.expand_dims(dists[:,1], axis=0),
+        np.expand_dims(dists[:,2], axis=0))
 
     # Calculate C coefficents via C++ implementation
     c_calc = calculate_c_cpp(
@@ -1878,6 +1886,14 @@ class density_extraction:
 
       # End Jobs that take too long
       if np.amax(tau) > 500 and self.sampler.iteration/np.amax(tau) > 15:
+        break
+
+      # Deterministic stop. Convergence requires iteration > 100*tau AND tau stable to 1%
+      # AND iteration > min_acTime_steps*tau, and the break above only fires once
+      # tau > 500, so without this the loop is effectively unbounded.
+      if self.sampler.iteration >= self.data_params.get("max_iterations", np.inf):
+        print("INFO: reached max_iterations ({}), stopping. has_converged = {}".format(
+            self.data_params["max_iterations"], self.has_converged))
         break
 
       # Start new mcmc run at the end of the previous
@@ -2795,6 +2811,11 @@ class density_extraction:
         -------
     """
 
+    # Imported here rather than at module scope so that every code path which does not
+    # simulate Poissonian error runs without these vendored modules present.
+    from diffraction_simulation import diffraction_calculation
+    from fitting import fit_legendres_images
+
     s2n_scale, s2n_range = error_options
 
     # Get ADMs
@@ -2812,7 +2833,7 @@ class density_extraction:
       q_wHole = self.data_params["dom"]
     else:
       dq = self.data_params["dom"][1] - self.data_params["dom"][0]
-      N_hole = np.int(np.round(self.data_params["dom"][0]/dq))
+      N_hole = int(np.round(self.data_params["dom"][0]/dq))
       N_hole += (N_hole+1)%2
       dqq = self.data_params["dom"][0]/N_hole
       q_wHole = np.concatenate(
@@ -2848,7 +2869,7 @@ class density_extraction:
     # Simulate Diffraction
     if len(sim_LMK_weights.shape) == 2 and sim_LMK_weights.shape[0] > 10:
       mol_diffraction = []
-      for i in range(np.int(np.ceil(sim_LMK_weights.shape[0]/10.))):
+      for i in range(int(np.ceil(sim_LMK_weights.shape[0]/10.))):
         atm_diffraction, mol = diffraction_calculation(
             sim_LMK, sim_LMK_weights[i*10:(i+1)*10],
             np.array([[self.atom_positions]]), [self.atom_types],
