@@ -22,7 +22,7 @@ diffraction experiments*, **Communications Physics 6, 325 (2023)**,
 9. [HDF5 file formats](#9-hdf5-file-formats)
 10. [Bringing your own measured data](#10-bringing-your-own-measured-data)
 11. [Gotchas](#11-gotchas)
-12. [Known remaining bugs](#12-known-remaining-bugs)
+12. [Known remaining issues](#12-known-remaining-issues)
 
 ---
 
@@ -417,7 +417,7 @@ _ART  = os.path.join(_REPO, "external_artifacts")
 
 ### `setup.sh` — do not run it
 
-Left as-is (it documents original intent) but it is broken in five ways:
+Left as-is (it documents original intent) but it is broken in six ways -- see [issues/012](issues/012-setup-sh-broken.md):
 - line 37 has an **unterminated double quote** → shell syntax error;
 - lines 15 and 25 test `$FILE`, which is never defined (the variables are `DATA_PARAMS_FILE`
   etc.), so those `ln -s` silently never run;
@@ -691,21 +691,21 @@ module (see `modules/module_template.py`).
 
 ---
 
-## 12. Known remaining bugs
+## 12. Known remaining issues
 
-Left unfixed because they sit off the path this run exercises. Documented so you are not
-surprised.
+**Everything outstanding is written up in [`issues/`](issues/)**, one file per issue, each with the
+symptom, the exact location, the mechanism, a way to reproduce it and a suggested fix. Start with
+[`issues/README.md`](issues/README.md) for the index and a suggested order of work.
 
-| Location | Problem |
+The ones most likely to affect you:
+
+| Issue | Why it matters |
 |---|---|
-| `density_extraction.py:2522, 2613` | `calc_type = 2` is dead: `np.unique(n)` uses an undefined `n`, and `self.` is missing from a `calculate_coeffs` assignment. Both raise `NameError`. |
-| `density_extraction.py:676` vs `2511` | `calc_type = 1` crashes in `compare_spherical_bessel_scipy`, which calls `self.spherical_j(self.dom, len(self.dom))` with two arguments while `numpy_jn(x)` takes one. |
-| `density_extraction.py:2144` | `self.fig_I0` does not exist (typo for `fit_I0`). Reached only with real data and no `I_scale`. |
-| `density_extraction.py:2222, 2225, 2209` | `remove_global_offset` calls `fit_I0` without `self.` and passes an unsupported `N=` kwarg. Reached only if `global_offset` is set. |
-| `density_extraction.py:1128-1138` | `compare_c_coeffs_scipy` references undefined locals. Reached only if `compare_c_coeffs=True`. |
-| `density_extraction.py:2380-2462` | `save_results` / `get_results` are dead and broken: a positional argument binds to `folder_only`, and both read a `perturb_range` parameter `NO2/parameters.py` never defines. |
-| `density_extraction.py:1446-1506` | `calculate_coeffs_ensemble_scipy` has a broadcasting bug (`(6,3,52,1,1)` against `(4,3,52,1,1)`), so the scipy ensemble backend cannot be used as a cross-check. |
-| `modules/NO2.py:196` | `theta_to_cartesian_2dof` is dead code; see [§4](#4-symmetric-vs-asymmetric-no2--pick-the-right-degrees-of-freedom). |
-| `NO2/submitClusterJobs.sh:15` | Submits `python3 validate.py`; that script no longer exists (it is now `build_posterior.py`). |
-| `NO2/build_posterior.py:20-24` | `argparse.parse_args()` runs at module scope, so importing the module (e.g. from a notebook) parses the host's `sys.argv` and can `sys.exit(2)`. Move it under `if __name__ == "__main__":` to make `main(..., return_extraction=True)` usable. |
-| `NO2/analyze_results.ipynb` | Cells 12 and 15 redefine `column_compare_dists` and `plot_trends_single` with older signatures that do not match their call sites — **do not run those two cells**. Cell 5 calls an undefined `input_initialize_walkers` (the real name is `initialize_walkers`); a later cell reads `exx.wiener`, which is never set as an attribute; and the ADM/alignment cells still contain `/cds/` paths and shell out to an external `diffraction.py`. |
+| [006](issues/006-measured-data-path-broken.md) | **The measured-data path crashes** (`self.fig_I0` does not exist). One-character fix, but it is on the path that matters most. |
+| [002](issues/002-L4-coefficients-anomalously-small.md) | The **L=4 coefficients come out ~10⁻⁶** while L=2 and L=6 are ~10⁻². Unresolved; needs a physics decision. If it is a bug, L=4 contributed nothing to any published fit. |
+| [001](issues/001-ston-signal-to-noise-unusable.md) | `StoN` runs but cannot reach usable S/N with these ADMs — quantified, with what would fix it. |
+| [003](issues/003-2dof-symmetric-path-unwired.md) | `experiment="2dof"` (symmetric NO₂) raises; `theta_to_cartesian_2dof` is dead code. |
+| [004](issues/004-calc-type-1-and-2-broken.md) | `calc_type` 1 and 2 both crash, and `calc_type` is silently ignored when `multiprocessing > 1`. |
+| [007](issues/007-simulated-data-cache-key-incomplete.md) | The simulated-data cache can **silently** reuse stale coefficients. |
+| [011](issues/011-notebook-remaining-problems.md) | Two notebook cells shadow `plot_functions` with swapped positional arguments — a wrong figure with no error. |
+| [012](issues/012-setup-sh-broken.md) | `setup.sh` has a fatal syntax error and cannot run at all. |
