@@ -301,8 +301,11 @@ class density_extraction:
                   Constant standard deviation : ("constant_sigma", sigma)
                       Sigma will be the standard deviation for all C coefficients
                   Constant background : ("constant_background", sigma)
-                      Will apply a constant error to the C coefficient errors such
-                      that the C200 signal to noise is given by sigma                
+                      A constant background error, i.e. sigma(q) proportional to
+                      1/atomic_scattering(q), so the error GROWS with q. Normalised so
+                      that the C200 signal to noise is 1/sigma -- note this is the
+                      reciprocal of what this docstring used to claim. Measured:
+                      sigma=0.01 gives C200 S/N = 108.                
       simulate_error_StoN(error_options):
           This function simulates the C coefficient errors by adding Poissonian
           error to the diffraction pattern and propogating it through the fitting
@@ -949,7 +952,8 @@ class density_extraction:
             Constant standard deviation : ("constant_sigma", sigma)
                 Sigma will be the standard deviation for all C coefficients
             Constant background : ("constant_background", sigma)
-                Will apply a constant error to the C coefficient errors such
+                sigma(q) proportional to 1/atomic_scattering(q) so the error grows
+                with q; normalised so the C200 signal to noise is 1/sigma. Such
                 that the C200 signal to noise is given by sigma                
     """
 
@@ -1040,6 +1044,12 @@ class density_extraction:
         variance_scale = variance_scale**2*SN_ratio_lg2
 
         self.experimental_var *= variance_scale
+
+        # experimental_var is built 1-D over q here (the S/N normalisation above indexes it
+        # that way), but everything downstream expects [lmk, q] -- e.g. the C200 S/N check
+        # below and prune_data both index it with two axes. Broadcast before returning.
+        self.experimental_var = np.broadcast_to(
+            self.experimental_var, self.input_data_coeffs.shape).copy()
 
       elif "onstant_sigma" in error_type:
         self.experimental_var =\
