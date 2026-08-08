@@ -431,6 +431,21 @@ Step 2 of the [TL;DR](#1-tldr) does what it was meant to do.
 
 ## 7. Parameter reference and what each knob costs
 
+### Warning: the PDF model's likelihood is quadrature-limited
+
+Before trusting any `density_model: "PDF"` result, read
+[issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md). The ensemble
+discretisation error, not the data, dominates how the likelihood varies with Θ for small Θ
+perturbations — the regime that sets the reported resolution σ^Θ. In practice:
+
+- **Never lower `ENSEMBLE_GRID_N` below the shipped 19** to buy speed. At 11 the likelihood surface
+  becomes rugged and non-monotonic on sub-percent scales in Θ and emcee cannot sample it: acceptance
+  collapses to ~3 % and the autocorrelation time τ grows linearly with chain length, so the
+  convergence test `iteration > 100·τ` can never be satisfied.
+- **Never lower `ENSEMBLE_GRID_SPAN` below 7** either, even though the tails look negligible.
+- `log_likelihood(truth) == 0` exactly is still a valid check, because the quadrature error cancels
+  at Θ_truth — but it tells you nothing about the surface *around* truth.
+
 ### The override trap
 
 `get_parameters()` sets `multiprocessing`, `Nwalkers` and `run_limit` in the dict literal and
@@ -442,16 +457,17 @@ clause.
 
 | Parameter | Paper / original | Here | Effect |
 |---|---|---|---|
-| `ENSEMBLE_GRID_N` (`modules/NO2.py`) | 19 | **11** | **The dominant cost.** The ensemble is the full outer product over 3 DOF, so cost ∝ N³: 19³ = 6859 geometries/walker → **2.9 s per MCMC step**; 11³ = 1331 → **0.56 s**. |
+| `ENSEMBLE_GRID_N` (`modules/NO2.py`) | 19 | **19** | **The dominant cost** (∝ N³, full outer product over 3 DOF): 19³ = 6859 geometries/walker → ~4.9 s per MCMC step at 118 q points. **Do not reduce it** — see the warning below. |
+| `ENSEMBLE_GRID_SPAN` (`modules/NO2.py`) | 7 (was hardcoded) | 7 | Grid half-width in σ. **Do not reduce it either**; ±3σ is 200× less accurate at fixed N because the integrand oscillates. |
 | `multiprocessing` | 10 | **0** | Must be 0 or 1 on macOS. `calculate_c_ensemble_multiProc` pickles a bound method whose `self.spherical_j` is a closure created in `setup_calculations:2500`; the spawn start method cannot pickle it. 0 keeps the fast in-process C++ path. |
 | `Nwalkers` | 100 | 32 | Cost and memory are linear in this. Must be ≥ 2·ndim = 12. |
 | `run_limit` | 100 | 100 | Batch size between checkpoints/convergence checks — **not** an iteration cap. |
 | `min_acTime_steps` | 3000 | 5 | Removes the `iteration > 3000·τ` gate, which alone would need ~120 000 steps. |
 | `max_iterations` | — (new) | 1000 | Deterministic stop. |
-| `fit_range` | `[0.5, 10]` | `[0.5, 5]` | With `q_per_pix`, shrinks `dom` from 236 → 58 points. Costs resolution: the paper (Fig. 6a, 7) shows wider q reduces false Θ correlations. |
+| `fit_range` | `[0.5, 10]` | `[0.5, 10]` | With `q_per_pix` doubled this gives `dom` = 118 points instead of the paper's 236. |
 | `q_per_pix` | `3.5/83` | `2*3.5/83` | Halves `dom` again. |
 | `calc_type` | 0 | 0 | C++ backend. |
-| `simulate_error` | `("StoN", (100, [0.5,4]))` | `("constant_sigma", 0.163)` | See [§8](#8-why-the-run-uses-constant_sigma-and-not-ston). |
+| `simulate_error` | `("StoN", (100, [0.5,4]))` | `("constant_sigma", 0.05)` | See [§8](#8-why-the-run-uses-constant_sigma-and-not-ston). |
 | `ADM_params["temperature"]` | 100 | 1 | Only 1/10/20/30/300 K exist; cold gives far larger high-order ADMs. |
 | `ADM_params["eval_times"]` | `linspace(37.5,41.5,100)` | `linspace(16.0,20.0,25)` | Must stay inside −0.2…40.3 ps and should bracket the 18 ps revival. |
 | `mode_tolerance` | 1e-4 | 0.01 | Must be met 3 consecutive times. |
@@ -460,14 +476,19 @@ clause.
 To reproduce the paper's numbers, restore the left-hand column and expect hours to days per
 configuration rather than minutes.
 
-### Choosing σ for `constant_sigma`
+### Choosing σ for `constant_sigma`, and a warning about calibrating it
 
-σ is in the same units as the C coefficients and directly sets the resolution. It can be
-calibrated from the likelihood curvature: with σ = 10⁻⁴, shifting d₁ by 2 mÅ changed
-log-likelihood by −1.4 × 10⁶. Since Δlog L ∝ 1/σ², putting a 2 mÅ shift at Δlog L ≈ −0.5 (i.e.
-1σ) needs σ ≈ 0.17. **σ = 0.163** — the value already suggested in a comment in the original
-`parameters.py` — therefore gives a few-mÅ resolution on the N–O distances, comparable to the
-paper's regime.
+σ is in the same units as the C coefficients and sets the resolution directly.
+
+**Do not calibrate it from the likelihood curvature at a coarse ensemble grid.** That is what was
+done here at first, giving σ = 0.163, and it was wrong: at `ENSEMBLE_GRID_N = 11` the apparent
+curvature is almost entirely ensemble-quadrature noise, not data sensitivity
+([issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md)). Against a converged
+reference grid the true sensitivity at ±2 % in ⟨NO⁽¹⁾⟩ is ~200× smaller than N = 11 suggests, so
+σ = 0.163 leaves the N–O distances only loosely constrained (1σ ≈ 50 mÅ).
+
+If you need to calibrate σ, do it at a grid you have checked for convergence — evaluate ΔlogL at
+N and 2N and require the answer to be stable first. σ = 0.05 is used here.
 
 ### Mode search cost
 
