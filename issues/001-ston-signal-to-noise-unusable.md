@@ -1,10 +1,45 @@
-# 001 — `StoN` error model cannot reach usable signal-to-noise with the in-repo ADMs
+# 001 — [LARGELY RESOLVED] `StoN` signal-to-noise with the in-repo ADMs
 
-**Severity** P1 (blocks the paper's own noise model)
+**Severity** ~~P1~~ P3
 **Area** error model / ADMs
-**Status** open — mechanism understood and quantified, no fix
+**Status** **largely resolved 2026-08-08** — the original diagnosis was dominated by the
+centre-of-mass bug.
 
-## Symptom
+> ## Re-measured after fixing the centre-of-mass bug
+>
+> The S/N figures below were taken while `rotate_to_principalI` scaled every molecule by
+> 1/total_mass ([002](002-L4-coefficients-anomalously-small.md)). The C coefficients were therefore
+> ~500× too small and, because the tiny distances destabilised the C++ Bessel recursion, partly
+> noise. The error propagation was fine; the signal it was being compared against was not.
+>
+> Re-measured with the bug fixed, `StoN` at the paper's standard SNR = 100 with only 25 eval_times:
+>
+> | LMK | S/N (fixed) | S/N (with the bug) |
+> |---|---|---|
+> | [2 0 0] | **144.9** | 0.055 |
+> | [4 0 0] | **28.7** | ~3e-6 |
+> | [6 0 0] | **16.1** | 0.009 |
+> | [2 0 2] | 2.2 | 0.015 |
+> | [4 0 2] | 2.2 | ~2e-7 |
+> | [4 0 4] | 0.006 | ~4e-7 |
+>
+> **So `StoN` is usable, and the ADMs in this repository are adequate.** The k = 0 coefficients are
+> well measured. The much lower S/N on k ≠ 0 is expected physics rather than a defect: those terms
+> are constrained by the azimuthal ADMs (A^L_{0K} with K ≠ 0), which are genuinely smaller than the
+> K = 0 moments — visible directly in the ADM files.
+>
+> **What survives:** the mechanism section below is a correct description of how
+> `simulate_error_StoN` propagates error (`Var(C) = (AᵀWA)⁻¹` with mean-subtracted ADMs), and the
+> observation that variance falls only as 1/N_times so adding time points is an inefficient lever.
+> Both remain useful. **What does not survive:** the conclusion that usable S/N would need ~10⁶ time
+> points, and the recommendation to convert the older MATLAB ADM set — neither is necessary.
+>
+> `StoN` is now the right choice for a paper-faithful run, and is preferable to `constant_sigma`
+> because its error bars are per-coefficient and per-q rather than uniform.
+
+---
+
+## Original symptom (with the centre-of-mass bug present)
 
 With `simulate_error = ("StoN", (100, [0.5, 4]))` the pipeline now runs end to end — ADM import,
 2-D diffraction simulation, Legendre refit, error propagation, MCMC — but the resulting

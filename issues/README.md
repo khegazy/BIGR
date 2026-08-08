@@ -18,7 +18,7 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 
 | # | Severity | Area | Title |
 |---|---|---|---|
-| [001](001-ston-signal-to-noise-unusable.md) | P1 | error model | `StoN` error model cannot reach usable signal-to-noise with the in-repo ADMs |
+| [001](001-ston-signal-to-noise-unusable.md) | ~~P1~~ | error model | ✅ **largely resolved** — StoN works; the low S/N was the centre-of-mass bug |
 | [002](002-L4-coefficients-anomalously-small.md) | ~~P1~~ | physics | ✅ **RESOLVED** — centre-of-mass bug scaled every molecule by 1/total_mass |
 | [003](003-2dof-symmetric-path-unwired.md) | P1 | geometry | Symmetric (2dof) NO₂ path is unwired — `theta_to_cartesian_2dof` is dead code |
 | [004](004-calc-type-1-and-2-broken.md) | P1 | backends | ⚠️ **partly fixed** — `calc_type=1` now works; 2 still dead; still overridden by multiprocessing |
@@ -34,22 +34,29 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | [014](014-scripts-not-importable.md) | P3 | scripts | Driver scripts cannot be imported (module-scope `parse_args`, globals used in `main`) |
 | [015](015-scipy-sph-harm-pin.md) | P3 | dependencies | Pinned to scipy < 1.17 by `sph_harm`; also blocks Python > 3.10 |
 | [016](016-ensemble-quadrature-error-dominates-likelihood.md) | ~~P1~~ | likelihood | ❌ **RETRACTED** — was an artifact of the centre-of-mass bug |
-| [017](017-mode-search-returns-worse-than-median.md) | P2 | mode search | `weight_avg_search` returns a Θ\* with lower likelihood than a typical posterior sample |
-| [018](018-posterior-prior-dominated-at-low-information.md) | P2 | priors | At low information the posterior is prior-dominated and widths run to their bound — silently |
+| [017](017-mode-search-returns-worse-than-median.md) | P2 | mode search | `weight_avg_search` returns a centroid, not a maximum — **numbers need re-verification** |
+| [018](018-posterior-prior-dominated-at-low-information.md) | ~~P2~~ P3 | priors | ⚠️ **revised** — measurement invalid; the guard is still worth adding |
 | [019](019-prefactor-convention-differs-from-eq21.md) | P2 | conventions | C-coefficient prefactor differs from Eq. 21 by an L-dependent normalisation |
 
 ## Suggested order of work
 
-1. **[016](016-ensemble-quadrature-error-dominates-likelihood.md)** — the most consequential finding.
-   It corrupts the PDF likelihood surface, which is the paper's central model, and it invalidates any
-   σ calibrated from likelihood curvature at a coarse grid. A Gauss-Hermite quadrature would fix the
-   accuracy *and* make it ~9x faster at the same time.
-2. **[006](006-measured-data-path-broken.md)** — one-character fix, and it is the difference
-   between the package working on real data or not.
-3. **[002](002-L4-coefficients-anomalously-small.md)** — needs your physics judgement, and if it
-   *is* a bug it invalidates the L=4 contribution to every published fit.
-4. **[012](012-setup-sh-broken.md)**, **[004](004-calc-type-1-and-2-broken.md)** — cheap, and they
-   are the first things a new user hits.
-5. **[001](001-ston-signal-to-noise-unusable.md)**, **[003](003-2dof-symmetric-path-unwired.md)** —
-   feature-level gaps needing real work.
-6. The rest as convenient.
+**Update 2026-08-08.** A single root-cause fix — a centre-of-mass bug in `rotate_to_principalI`
+that scaled every molecule by 1/total_mass — resolved or retracted five of these
+([002](002-L4-coefficients-anomalously-small.md) resolved,
+[016](016-ensemble-quadrature-error-dominates-likelihood.md) retracted,
+[001](001-ston-signal-to-noise-unusable.md) largely resolved,
+[018](018-posterior-prior-dominated-at-low-information.md) revised,
+[017](017-mode-search-returns-worse-than-median.md) needs re-verification). Several others were
+fixed directly. What remains:
+
+1. **[019](019-prefactor-convention-differs-from-eq21.md)** — needs an authors' decision on which
+   spherical-harmonic convention Eq. 21 assumes. Matters for imported measured data.
+2. **[012](012-setup-sh-broken.md)** — `setup.sh` still cannot run; first thing a new user hits.
+3. **[003](003-2dof-symmetric-path-unwired.md)** — the symmetric 2dof path is still unwired.
+4. **[017](017-mode-search-returns-worse-than-median.md)** — re-measure on a valid posterior, then
+   add the guard.
+5. **[005](005-multiprocessing-broken-on-spawn.md)**, **[007](007-simulated-data-cache-key-incomplete.md)**,
+   **[008](008-mode-search-no-iteration-cap.md)**, **[013](013-get-adms-molecule-hardcoded.md)** —
+   real but independent of the above.
+6. **[004b](004-calc-type-1-and-2-broken.md)**, **[010b/c/e/g](010-dead-and-broken-code-paths.md)** —
+   dead code: repair or delete.
