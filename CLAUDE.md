@@ -2,6 +2,48 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Start here
+
+Two documents supersede parts of this file and should be read first:
+
+- **`how_to_run.md`** — the verified end-to-end procedure, every code change made to get it running
+  off the SLAC cluster, the HDF5 schemas (including the layout colleagues need for their own
+  measured data), and the parameter reference.
+- **`issues/`** — one file per known defect, with severity, exact locations, reproductions and
+  suggested fixes. `issues/README.md` indexes them.
+
+Run the regression suite before and after touching anything in the forward model:
+
+```bash
+MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py     # 11 tests, all should pass
+```
+
+Environment: use the `uv`-managed venv at `.venv/` (Python 3.10). It has **no pip** — install with
+`uv pip install --python .venv/bin/python …`. Always set `MPLBACKEND=Agg`.
+
+## Hard-won gotchas
+
+- **A centre-of-mass bug used to scale every molecule by 1/total_mass** (46× for NO₂), which
+  corrupted every C coefficient and, via the resulting Bessel instability, produced a bogus
+  L-dependent anomaly. Fixed, and guarded by a test asserting the frame rotation preserves pairwise
+  distances. Several conclusions measured before that fix were wrong and are retracted in place in
+  `issues/` — check dates before trusting a measurement recorded there.
+- **`calculate_dists` takes a 2-D `[atoms, xyz]` array** (or the `[atoms, xyz, N, ens]` layout the
+  backends build by transposing). Passing `[N, atoms, xyz]` silently returns garbage.
+- **`self.spherical_j` returns one row per even *order*, indexed by `l/2`** — not one row per LMK.
+  Expand with `[data_LMK[:,0]//2]` before combining with per-LMK arrays.
+- **The simulated data carries no noise.** `simulate_error` only sets the *variance*; the lines that
+  would add noise are commented out. So `logL(truth) == 0` is an identity, not evidence of a good
+  fit.
+- **`multiprocessing` must be 0 or 1 off Linux** — the worker pickles a bound method holding a
+  closure, which the macOS spawn start method cannot pickle.
+- **Run the scripts from inside `NO2/`**; the `.so` is loaded from a cwd-relative path at import.
+- **The simulated-data cache is keyed only on `get_fileName`**, which omits `fit_bases`,
+  `sim_thetas`, `eval_times` and the ensemble grid size — delete `output/saved_simulations/` after
+  changing any of them.
+- **Don't run `setup.sh`** — it has an unterminated quote and several other defects
+  (`issues/012`). `how_to_run.md` §1 has working commands.
+
 ## What this is
 
 BIGR retrieves the molecular-frame geometry probability distribution |Ψ(R,t)|² from ultrafast gas-phase
