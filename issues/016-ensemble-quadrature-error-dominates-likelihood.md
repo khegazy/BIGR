@@ -1,6 +1,41 @@
-# 016 — Ensemble discretisation error dominates the PDF likelihood and makes it unsamplable
+# 016 — [RETRACTED] Ensemble discretisation error dominates the PDF likelihood
 
-**Severity** **P1 — the most consequential issue found.** It silently corrupts the PDF (`P^(N)`)
+> ## RETRACTED 2026-08-08 — this issue was an artifact of the centre-of-mass bug
+>
+> Everything below was measured while `rotate_to_principalI` was scaling every molecule by
+> 1/total_mass ([002](002-L4-coefficients-anomalously-small.md)). With pairwise distances 46×
+> too small, q·ΔR fell to ~0.02–0.24 and the C++ Bessel **upward recursion** was deep inside its
+> unstable regime, so the higher orders returned erratic values that changed with the grid. That
+> is what looked like a non-convergent quadrature.
+>
+> With the centre-of-mass bug fixed, `logL` converges cleanly with the ensemble grid:
+>
+> | N | ΔlogL @ +0.2 % in ⟨NO⁽¹⁾⟩ | change vs previous N |
+> |---|---|---|
+> | 11 | −484959.14 | — |
+> | 19 | −484953.33 | 0.00 % |
+> | 31 | −484953.33 | 0.00 % |
+> | 51 | −484953.33 | 0.00 % |
+> | 91 | −484953.33 | 0.00 % |
+>
+> Identical to five significant figures from N = 19 up, and even N = 11 agrees to 0.001 %.
+>
+> **Consequences for the claims made below, all of which are withdrawn:**
+> - The quadrature is *not* the accuracy bottleneck; `ENSEMBLE_GRID_N` is an ordinary
+>   speed/accuracy knob and 19 is comfortably converged.
+> - The Gauss–Hermite proposal is unnecessary. It was never validated end-to-end and should not
+>   be pursued on the strength of this issue.
+> - The `ENSEMBLE_GRID_SPAN` discussion (both the "reduce it" claim and its retraction) was
+>   measuring the same artifact. The value stays at the original 7.
+> - The acceptance-fraction difference between N = 11 and N = 19 (0.027 vs 0.230) was also a
+>   symptom of the Bessel instability, not of quadrature error.
+>
+> Kept for the record, and because the fixed-data comparison method it describes is a sound
+> technique worth reusing. **Do not act on its conclusions.**
+
+---
+
+**Severity** ~~P1~~ **RETRACTED — not a real defect.** Original text: It silently corrupts the PDF (`P^(N)`)
 likelihood surface, which is the paper's central model.
 **Area** `molecule_ensemble_generator` / likelihood
 **Status** open. A validated fix exists (Gauss–Hermite quadrature, below) that is simultaneously

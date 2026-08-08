@@ -28,14 +28,14 @@ def get_parameters(run=None, molecule=None):
       "Nwalkers"           : 16,
       "run_limit"          : 50,
       "min_acTime_steps"   : 5,
-      "max_iterations"     : 30000,
+      "max_iterations"     : 3000,
       "simulate_data"      : True,
       # Error model. constant_sigma is the default here because the StoN (Poissonian)
       # model, although it runs end to end, cannot produce a usable signal-to-noise with
       # the ADMs available in this repo -- see how_to_run.md, "Why not StoN". sigma = 0.163
       # was already the alternative suggested in this file and is the right scale: it puts
       # the 1-sigma resolution on the N-O distances at a few mAngstrom.
-      "simulate_error"     : ("constant_sigma", 2e-4),#("StoN", (100, [0.5,4]))
+      "simulate_error"     : ("constant_sigma", 0.0962),#("StoN", (100, [0.5,4]))
       "N_mode_samples"     : 25,
       "mode_std_grid"      : np.array([-1, 0, 1]),
       "mode_tolerance"     : 0.01,
@@ -44,11 +44,11 @@ def get_parameters(run=None, molecule=None):
       "dom"                : None,
       "fit_bases"          : None,
       "isMS"               : False,
-      "fit_range"          : [0.5, 5],
+      "fit_range"          : [0.5, 10],
       "elEnergy"           : 3.7e6,
       "sim_thetas"         : None,
       "init_thetas"        : None,
-      "init_thetas_std_scale" : 0.002,
+      "init_thetas_std_scale" : 5e-4,   # match the posterior width; see how_to_run.md
       "init_geo_xyz"       : None,
       "q_per_pix"          : 2*3.5/83,
       "scat_amps_dir"      : os.path.join(_ART, "scattering_amplitudes", "3.7MeV"),

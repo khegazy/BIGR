@@ -454,21 +454,17 @@ Step 2 of the [TL;DR](#1-tldr) does what it was meant to do.
 
 ## 7. Parameter reference and what each knob costs
 
-### Warning: the PDF model's likelihood is quadrature-limited
+### On the ensemble grid size
 
-Before trusting any `density_model: "PDF"` result, read
-[issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md). The ensemble
-discretisation error, not the data, dominates how the likelihood varies with Θ for small Θ
-perturbations — the regime that sets the reported resolution σ^Θ. In practice:
+An earlier version of this document warned that the ensemble quadrature dominated the likelihood and
+that `ENSEMBLE_GRID_N` must never be lowered. **That was wrong** — it was an artifact of the
+centre-of-mass bug (see below), which shrank every molecule by its total mass and pushed the C++
+Bessel recursion into its unstable regime. With that fixed, `logL` converges with the grid to five
+significant figures from N = 19 upward, and even N = 11 agrees to 0.001 %. See
+[issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md), now retracted.
 
-- **Never lower `ENSEMBLE_GRID_N` below the shipped 19** to buy speed. Measured on otherwise
-  identical configurations, the emcee acceptance fraction is **0.027 at N = 11 versus 0.230 at
-  N = 19** — the grid alone costs 8.5× in sampling efficiency. At 11 the likelihood surface is
-  rugged and non-monotonic on sub-percent scales in Θ, τ grows linearly with chain length, and the
-  convergence test `iteration > 100·τ` can never be satisfied.
-- **Never lower `ENSEMBLE_GRID_SPAN` below 7** either, even though the tails look negligible.
-- `log_likelihood(truth) == 0` exactly is still a valid check, because the quadrature error cancels
-  at Θ_truth — but it tells you nothing about the surface *around* truth.
+So `ENSEMBLE_GRID_N` is a straightforward speed/accuracy knob after all: cost scales as N³ and
+accuracy saturates quickly. 19 is the shipped value and is comfortably converged.
 
 ### The override trap
 
@@ -500,19 +496,36 @@ clause.
 To reproduce the paper's numbers, restore the left-hand column and expect hours to days per
 configuration rather than minutes.
 
-### Choosing σ for `constant_sigma`, and a warning about calibrating it
+### Choosing σ for `constant_sigma`
 
-σ is in the same units as the C coefficients and sets the resolution directly.
+σ is the standard deviation assigned to **every** C_lmk(q) point
+(`density_extraction.py:1044`), and the likelihood is `−0.5·(data − calc)²/σ²`. So it sets the
+resolution directly.
 
-**Do not calibrate it from the likelihood curvature at a coarse ensemble grid.** That is what was
-done here at first, giving σ = 0.163, and it was wrong: at `ENSEMBLE_GRID_N = 11` the apparent
-curvature is almost entirely ensemble-quadrature noise, not data sensitivity
-([issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md)). Against a converged
-reference grid the true sensitivity at ±2 % in ⟨NO⁽¹⁾⟩ is ~200× smaller than N = 11 suggests, so
-σ = 0.163 leaves the N–O distances only loosely constrained (1σ ≈ 50 mÅ).
+Calibrate it against the paper's convention, which defines SNR as the geometric mean of
+C₀₀₀(q)/σ₀₀₀(q) over 0.5 < q < 4 Å⁻¹ (paper p. 16). Measured here, the geometric mean of |C₀₀₀| over
+that window is **9.62**, so:
 
-If you need to calibrate σ, do it at a grid you have checked for convergence — evaluate ΔlogL at
-N and 2N and require the answer to be stable first. σ = 0.05 is used here.
+| paper SNR | σ | resulting S/N on the fitted L≥2 coefficients |
+|---|---|---|
+| 25 | 0.385 | 29, 3, 11, 3, 0.1, 6 |
+| **100** (paper's standard) | **0.0962** | 115, 12, 44, 12, 0.5, 24 |
+| 400 | 0.0241 | 459, 46, 176, 48, 2, 98 |
+
+`σ = 0.0962` is used here, matching the paper's standard configuration. It yields conditional
+resolutions of **0.63 mÅ** on ⟨NO⁽¹⁾⟩ and **1.1 mrad** on ⟨∠ONO⟩, against the paper's Table 1 values
+of 0.5 mÅ and 1 mrad — good agreement.
+
+Note `constant_sigma` still cannot reproduce the paper's *shape* of error bars, which are
+per-coefficient and per-q. For that you need `StoN`
+([issues/001](issues/001-ston-signal-to-noise-unusable.md)) or `constant_background`, which at least
+gives the physically correct q dependence.
+
+**Match `init_thetas_std_scale` to the posterior width.** It multiplies element-wise, so the walker
+spread is `scale × init_thetas`. If the spread is much wider than the posterior almost every proposal
+is rejected and parameters freeze (τ comes back as `nan`); much narrower and the chain spends
+thousands of steps merely expanding. At σ = 0.0962 the tightest relative width is ~5e-4, which is the
+value used.
 
 ### Mode search cost
 

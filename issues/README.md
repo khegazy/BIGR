@@ -19,23 +19,24 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | # | Severity | Area | Title |
 |---|---|---|---|
 | [001](001-ston-signal-to-noise-unusable.md) | P1 | error model | `StoN` error model cannot reach usable signal-to-noise with the in-repo ADMs |
-| [002](002-L4-coefficients-anomalously-small.md) | **P2** | physics | L=4 C coefficients are ~10⁻⁶ while L=2 and L=6 are ~10⁻² — unexplained |
+| [002](002-L4-coefficients-anomalously-small.md) | ~~P1~~ | physics | ✅ **RESOLVED** — centre-of-mass bug scaled every molecule by 1/total_mass |
 | [003](003-2dof-symmetric-path-unwired.md) | P1 | geometry | Symmetric (2dof) NO₂ path is unwired — `theta_to_cartesian_2dof` is dead code |
-| [004](004-calc-type-1-and-2-broken.md) | P1 | backends | `calc_type` 1 and 2 both crash; `calc_type` is silently ignored when multiprocessing is on |
+| [004](004-calc-type-1-and-2-broken.md) | P1 | backends | ⚠️ **partly fixed** — `calc_type=1` now works; 2 still dead; still overridden by multiprocessing |
 | [005](005-multiprocessing-broken-on-spawn.md) | P1 | performance | `multiprocessing > 1` cannot work on macOS/Windows (spawn cannot pickle a closure) |
 | [006](006-measured-data-path-broken.md) | P1 | real data | The measured-data path crashes: `self.fig_I0` does not exist |
 | [007](007-simulated-data-cache-key-incomplete.md) | **P2** | caching | Simulated-data cache silently reuses stale coefficients |
 | [008](008-mode-search-no-iteration-cap.md) | P2 | mode search | `weight_avg_search` has no iteration cap or timeout |
 | [009](009-ensemble-grid-size-parameter-ignored.md) | P3 | parameters | The ensemble grid size appended to `sim_thetas` never takes effect |
-| [010](010-dead-and-broken-code-paths.md) | P3 | dead code | Six dead or broken code paths that raise on first use |
+| [010](010-dead-and-broken-code-paths.md) | P3 | dead code | ⚠️ **partly fixed** — 10a, 10d and 10f resolved; 10b, 10c, 10e, 10g remain |
 | [011](011-notebook-remaining-problems.md) | P2 | notebook | `analyze_results.ipynb`: stale duplicate functions, undefined names, cluster paths |
 | [012](012-setup-sh-broken.md) | P1 | setup | `setup.sh` cannot run: syntax error, undefined variable, bad URLs |
 | [013](013-get-adms-molecule-hardcoded.md) | P2 | ADMs | `get_ADMs` hardcodes `"NO2"` and silently drops missing LMK |
 | [014](014-scripts-not-importable.md) | P3 | scripts | Driver scripts cannot be imported (module-scope `parse_args`, globals used in `main`) |
 | [015](015-scipy-sph-harm-pin.md) | P3 | dependencies | Pinned to scipy < 1.17 by `sph_harm`; also blocks Python > 3.10 |
-| [016](016-ensemble-quadrature-error-dominates-likelihood.md) | **P1** | likelihood | **Ensemble discretisation error dominates the PDF likelihood** |
+| [016](016-ensemble-quadrature-error-dominates-likelihood.md) | ~~P1~~ | likelihood | ❌ **RETRACTED** — was an artifact of the centre-of-mass bug |
 | [017](017-mode-search-returns-worse-than-median.md) | P2 | mode search | `weight_avg_search` returns a Θ\* with lower likelihood than a typical posterior sample |
 | [018](018-posterior-prior-dominated-at-low-information.md) | P2 | priors | At low information the posterior is prior-dominated and widths run to their bound — silently |
+| [019](019-prefactor-convention-differs-from-eq21.md) | P2 | conventions | C-coefficient prefactor differs from Eq. 21 by an L-dependent normalisation |
 
 ## Suggested order of work
 

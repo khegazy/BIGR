@@ -1,9 +1,31 @@
 # 002 — L=4 C coefficients are ~10⁻⁶ while L=2 and L=6 are ~10⁻², unexplained
 
-**Severity** P2 (correctness risk — needs a physics decision)
+**Severity** P1 (it corrupted every C coefficient)
 **Area** C coefficient calculation
-**Status** open, **unresolved**. Flagged for review; I could not determine whether this is a bug
-or a genuine cancellation.
+**Status** **RESOLVED 2026-08-08.** Root cause was a centre-of-mass bug in
+`rotate_to_principalI`/`rotate_to_principalI_ensemble` that scaled every molecule by
+1/total_mass — 46× for NO₂ — so all pairwise distances were 46× too small. That drove the C++
+Bessel upward recursion into its unstable regime, producing erratic values for the higher orders.
+
+**Fix:** the division by the total mass belongs to the mass-weighted sum, not to the coordinates:
+
+```python
+# wrong: r'' = (r - sum_j m_j r_j)/M  -> scales all coordinates by 1/M
+molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
+molecules /= np.sum(self.mass)
+
+# right
+molecules = molecules \
+    - np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)/np.sum(self.mass)
+```
+
+**After the fix:** rotation preserves pairwise distances exactly; C₄₀₀ (3.74) > C₆₀₀ (2.26) as
+required; L = 2/4/6 come out 11.0 / 4.24 / 2.35 so M₄₀ₖ and M₆₀ₖ are ~2.6× and ~4.7× smaller than
+M₂₀ₖ, matching paper Fig. 3c's ×2 and ×4 scale factors; and the C++, scipy-combination and
+scipy-Bessel backends agree to 5.6e-11. Guarded by `scripts/test_physics.py`.
+
+This also retracts [016](016-ensemble-quadrature-error-dominates-likelihood.md), which was
+measuring the same artifact.
 
 ## Symptom
 
