@@ -33,7 +33,9 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | [013](013-get-adms-molecule-hardcoded.md) | P2 | ADMs | `get_ADMs` hardcodes `"NO2"` and silently drops missing LMK |
 | [014](014-scripts-not-importable.md) | P3 | scripts | Driver scripts cannot be imported (module-scope `parse_args`, globals used in `main`) |
 | [015](015-scipy-sph-harm-pin.md) | P3 | dependencies | Pinned to scipy < 1.17 by `sph_harm`; also blocks Python > 3.10 |
-| [016](016-ensemble-quadrature-error-dominates-likelihood.md) | **P1** | likelihood | **Ensemble discretisation error dominates the PDF likelihood and makes it unsamplable** |
+| [016](016-ensemble-quadrature-error-dominates-likelihood.md) | **P1** | likelihood | **Ensemble discretisation error dominates the PDF likelihood** |
+| [017](017-mode-search-returns-worse-than-median.md) | P2 | mode search | `weight_avg_search` returns a Θ\* with lower likelihood than a typical posterior sample |
+| [018](018-posterior-prior-dominated-at-low-information.md) | P2 | priors | At low information the posterior is prior-dominated and widths run to their bound — silently |
 
 ## Suggested order of work
 

@@ -90,42 +90,62 @@ Outputs land in:
 | `output/saved_simulations/<same relative path>/results_*.h5` | cached simulated C coefficients |
 | `NO2/plots/…` | corner plot, walker trajectories, setup diagnostics |
 
-### What the fast run actually produces
+### What a 2-hour run actually produces
 
-> **These numbers are superseded and should not be quoted.** They were produced with
-> `ENSEMBLE_GRID_N = 11`, a grid coarse enough that the ensemble-quadrature error, not the data,
-> dominated the likelihood — see
-> [issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md). The emcee acceptance
-> fraction at that grid was 0.027 versus 0.230 at the shipped `N = 19`. The table is kept only to
-> document what the coarse grid produced, and is being replaced by a longer run at `N = 19`.
+Asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ∈ [0.5, 5] Å⁻¹, ADMs at 1 K, shipped
+`ENSEMBLE_GRID_N = 19`, 32 walkers × **2400 steps (2 h wall clock)**, walkers initialised *at* the
+ground truth:
 
-Simulated asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ∈ [0.5, 5] Å⁻¹, ADMs at 1 K,
-32 walkers × 1000 steps, `ENSEMBLE_GRID_N = 11`:
+| Θ | truth | posterior median | σ^Θ | mode Θ\* | (med−truth)/σ^Θ | unit |
+|---|---|---|---|---|---|---|
+| ⟨NO⁽¹⁾⟩ | 1.35000 | 1.89457 | 0.34396 | 1.4756 | +1.58 | Å |
+| σ(NO⁽¹⁾) | 0.03000 | 0.13493 | 0.10416 | 0.0756 | +1.01 | Å |
+| ⟨NO⁽²⁾⟩ | 1.05000 | 1.44789 | 0.28488 | 1.2698 | +1.40 | Å |
+| σ(NO⁽²⁾) | 0.02000 | 0.10586 | 0.07898 | 0.0666 | +1.09 | Å |
+| ⟨∠ONO⟩ | 2.34000 | 1.87766 | 0.46421 | 1.8266 | −1.00 | rad |
+| σ(∠ONO) | 0.01000 | 0.19357 | 0.13571 | 0.1700 | +1.35 | rad |
 
-| Θ | truth | posterior median | σ^Θ | mode Θ\* | unit |
-|---|---|---|---|---|---|
-| ⟨NO⁽¹⁾⟩ | 1.35000 | 1.42204 | 0.30611 | 1.24165 | Å |
-| σ(NO⁽¹⁾) | 0.03000 | 0.02858 | 0.01386 | 0.02865 | Å |
-| ⟨NO⁽²⁾⟩ | 1.05000 | 1.07322 | 0.12957 | 1.07562 | Å |
-| σ(NO⁽²⁾) | 0.02000 | 0.01968 | 0.00608 | 0.02208 | Å |
-| ⟨∠ONO⟩ | 2.34000 | 2.34503 | 0.55251 | 2.39389 | rad |
-| σ(∠ONO) | 0.01000 | 0.01019 | 0.00963 | 0.01023 | rad |
+acceptance 0.257 · τ ≈ 134 · `has_converged = False` · 384 independent samples
 
-All six parameters land within 1σ of truth and the three widths within a few percent, which is
-encouraging — but at this grid the posterior shape is not trustworthy, so treat the σ^Θ column as
-meaningless and the agreement as partly luck.
+**Read this carefully — the retrieval does not recover the truth at these settings, and that is not
+a code fault.** The evidence separates cleanly:
 
-Diagnostics to check on any run, via `python scripts/analyse_run.py`:
+*The forward model and likelihood are correct.*
+- `logL(truth) = 0` exactly — the model reproduces its own simulated data.
+- **Nothing beat truth** among 2400 × 32 = 76 800 samples (best −0.126). Truth is the global maximum.
+- The spherical-Bessel C++ backend agrees with scipy to 1e-14 (`plots/check_jl*.png`).
+- Acceptance 0.257 is healthy for emcee, and the chain is stationary from step ~600 onward.
 
-- **acceptance fraction** — should be ~0.2–0.5. Much lower means the sampler is stuck.
-- **τ / steps** — must fall below 0.01 for the built-in convergence test (`iteration > 100·τ`) to
-  pass. If it sits at a constant ~0.11 across batches, emcee's estimator is saturating against the
-  chain length and the chain has not equilibrated.
-- **(median − truth)/σ^Θ** — the correctness check, since the data is simulated from a known Θ.
+*But the configuration carries too little information.* At σ = 0.163 and q ≤ 5 Å⁻¹, broadening the
+ensemble costs almost nothing in likelihood while the flat prior on the widths (`[0, 0.5]`) gives the
+broad region far more volume. Posterior mass ∝ likelihood × volume, so mass collects away from the
+peak: the widths settle 5–20× high and σ(∠ONO) visibly piles up against its prior ceiling in
+`fast_run_chains.png`. See
+[issues/018](issues/018-posterior-prior-dominated-at-low-information.md).
 
-A likely cause of slow equilibration is the initialisation: `init_thetas_std_scale = 0.002` starts
-the walkers in a ball ~2.7 mÅ wide while the posterior is ~0.3 Å, roughly 100× larger, so the chain
-spends a long time expanding rather than sampling. Raising it to ~0.1 is worth trying.
+The mode search does not rescue it: Θ\* has `logL = −8.73`, worse than the posterior median's −0.90,
+because `weight_avg_search` computes a weighted centroid rather than maximising — see
+[issues/017](issues/017-mode-search-returns-worse-than-median.md).
+
+**The single most useful lesson:** initialising at the truth and reading off agreement after a short
+run proves nothing. A 1000-step run at these settings looked excellent (all six parameters within
+0.25σ) purely because the walkers had not yet left their starting ball. Only the longer run revealed
+the posterior's real shape.
+
+Diagnostics to check on any run (`python scripts/analyse_run.py`):
+
+- **acceptance fraction** — want ~0.2–0.5.
+- **τ / steps** — must fall below 0.01 for `conv1` (`iteration > 100·τ`). A constant ~0.11 across
+  batches means emcee's estimator is saturating against chain length.
+- **(median − truth)/σ^Θ** — the correctness check for simulated data.
+- **width parameters at their prior bound** — if σ(·) accumulates near `sig_max = 0.5`, the answer is
+  set by the prior, not the data.
+
+To reach the paper's regime you need a properly calibrated error model (`StoN`, currently unusable —
+[issues/001](issues/001-ston-signal-to-noise-unusable.md)), q ≤ 10–20 Å⁻¹, and more walkers.
+
+Plots in `NO2/plots/NO2_symbreak/3dof/sim/PDF/1K_10TW_100fs/`: `fast_run_corner.png` and
+`fast_run_chains.png`.
 
 ## 2. Environment
 
