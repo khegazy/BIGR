@@ -2198,8 +2198,10 @@ class density_extraction:
         else:
           self.I = self.data_params["I_scale"]
       else:
-        #TODO FIX THIS OPTION, fig_I0 does not exist
-        self.fig_I0(c_calc)
+        # Was self.fig_I0(c_calc), a typo for fit_I0 flagged by a TODO here. This is the
+        # branch taken for measured data with no "I_scale" parameter, i.e. the path the
+        # package exists for, so it raised AttributeError on any real dataset.
+        self.fit_I0(c_calc)
 
     # Plot initial theta coeffs vs data
     if plot and self.plot_setup:
@@ -2278,10 +2280,10 @@ class density_extraction:
 
 
     if "scale" not in self.data_params:
-      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
+      I_init, I_std_init = self.fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     elif self.data_params["scale"] is None: 
-      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
+      I_init, I_std_init = self.fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     else:
       I_init, I_std_init = np.array([[self.data_params["scale"]]]), 0
@@ -2540,6 +2542,16 @@ class density_extraction:
     if "calc_type" not in self.data_params:
       self.data_params["calc_type"] = 1
 
+    # The multiprocessing helper only has a C++ implementation, so it forces that branch.
+    # Say so rather than silently ignoring calc_type -- this is the exact combination
+    # someone tries when the C++ extension is the suspect.
+    if self.do_multiprocessing and self.data_params["calc_type"] != 0:
+      raise ValueError(
+          "multiprocessing > 1 requires calc_type = 0 (the only backend with a "
+          "multiprocessing path); got calc_type = {}. Set multiprocessing = 0 to use "
+          "calc_type = {}.".format(
+              self.data_params["calc_type"], self.data_params["calc_type"]))
+
     if self.data_params["calc_type"] == 0 or self.do_multiprocessing:
       # Use the C++ implementation of spherical bessel functions
       
@@ -2738,10 +2750,10 @@ class density_extraction:
 
     # Check/calculate scaling between data and C simulation
     if "scale" not in self.data_params:
-      fit_I0(self.input_data_coeffs,
+      self.fit_I0(self.input_data_coeffs,
           data=self.input_data_coeffs_, var=self.input_data_coeffs_var_)
     elif self.data_params["scale"] is None: 
-      fit_I0(self.input_data_coeffs,
+      self.fit_I0(self.input_data_coeffs,
           data=self.input_data_coeffs_, var=self.input_data_coeffs_var_)
     else:
       self.I = np.array([[self.data_params["scale"]]])
@@ -2758,6 +2770,8 @@ class density_extraction:
     # Plot the fourier power spectrum and filter
     b, a = sp.signal.butter(*error_options, btype="hp", analog=True)
     w, h = sp.signal.freqs(b, a)
+    plot_folder = os.path.join("plots", self.data_params["molecule"])
+    os.makedirs(plot_folder, exist_ok=True)
     self.plot_filter(filt_inp, (w, h), plot_folder)
 
     # Filter the data to get the noise
