@@ -300,6 +300,64 @@ Hence `temperature: 1`.
 
 ## 6. Every code change
 
+### The most important fix: a centre-of-mass bug that corrupted every C coefficient
+
+`rotate_to_principalI` and `rotate_to_principalI_ensemble` shifted to the centre of mass like this:
+
+```python
+molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
+molecules /= np.sum(self.mass)
+```
+
+The centre of mass is `Σᵢmᵢrᵢ / Σᵢmᵢ`, but the division was applied to **`molecules`** rather than
+to the mass-weighted sum. Algebraically that gives
+
+```
+r'' = (r − Σⱼmⱼrⱼ)/M  =  r/M − Σⱼmⱼrⱼ/M       instead of      r − Σⱼmⱼrⱼ/M
+```
+
+so **every coordinate was scaled by 1/M** as well as mis-centred. For NO₂, M = 46, and all pairwise
+distances came out 46× too small — 0.029/0.048/0.023 Å where the geometry is 1.35/2.213/1.05 Å. A
+rotation cannot change distances, which is what makes this unambiguous.
+
+**The fix:**
+
+```python
+molecules = molecules \
+    - np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)/np.sum(self.mass)
+```
+
+(assigning rather than `-=`/`/=` also stops it mutating the caller's array).
+
+**Why it surfaced as an L-dependent anomaly.** With r ≈ 0.03 Å the spherical-Bessel argument q·ΔR
+falls to ~0.02–0.24, and the C++ **upward** recursion is catastrophically unstable for l > x. So the
+higher orders returned garbage: at a single geometry C₄₀₀ came out 7.6 and C₆₀₀ came out 8.4 × 10⁹
+where the correct values are 1.2e-6 and 1.4e-9. This is the same instability the README warns about
+for low q, triggered by the wrongly-small distances rather than by the q range.
+
+**What it invalidated.** Everything measured before this fix, including several conclusions in the
+`issues/` folder that are now retracted — most notably
+[issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md), which attributed a
+rugged, non-convergent likelihood to the ensemble quadrature. With the fix, `logL` converges with the
+ensemble grid to five significant figures from N = 19 upward (N = 11 agrees to 0.001 %).
+
+**After the fix**, all of the following hold, and are checked by `scripts/test_physics.py`:
+
+| check | result |
+|---|---|
+| rotation preserves pairwise distances | exact |
+| \|C₄₀₀\| > \|C₆₀₀\| | 2.95 > 1.94 ✓ |
+| coefficients fall with L | 7.07 > 2.95 > 1.94 ✓ |
+| C₂₀₀/C₄₀₀ | 2.4 — matching paper Fig. 3c's ×2 scale factor |
+| C++ / scipy-combination / scipy-Bessel backends | agree to 1.7e-10 |
+| C₀₀₀ vs C₂₀₀ | 29.3 vs 11.0, same order (was ~3000× apart) |
+
+**How it went unnoticed for so long:** every independent cross-check in the package was broken.
+`compare_c_coeffs_scipy` (the built-in C++-vs-scipy test) raised `NameError`;
+`calculate_coeffs_ensemble_scipy` had a broadcasting bug *and* ignored its weights argument;
+`calc_type=1` raised `TypeError` on construction; `calc_type=2` raised two `NameError`s. All are now
+fixed, and there is a regression suite.
+
 ### Environment-driven API migrations
 
 | File | Line(s) | Before | After | Why |
