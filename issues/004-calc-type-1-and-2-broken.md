@@ -15,7 +15,7 @@
 Only `calc_type = 0` works. This matters because option 1 is the documented fallback when the C++
 extension will not compile, and it is the only backend that is correct at low q.
 
-## 4a. `calc_type = 1` crashes with an arity mismatch
+## 4a. `calc_type = 1` crashes with an arity mismatch — ✅ FIXED
 
 `setup_calculations` defines the scipy evaluator taking **one** argument
 (`modules/density_extraction.py:2527`):
@@ -34,16 +34,15 @@ j_check = self.spherical_j(self.dom, len(self.dom))
 
 → `TypeError: numpy_jn() takes 1 positional argument but 2 were given`, during construction.
 
-**Fix.** Give the scipy version a compatible signature and ignore the second argument, matching the
-C++ wrapper's `calculate_even_only(x, N_qbins=-1)`:
+**Fixed 2026-08-08.** `numpy_jn` now takes the same `(x, N_qbins=-1)` signature as the C++ wrapper
+*and* returns one row per even order indexed by `l/2`, so both backends share a single convention.
+That second part matters: without it `compare_spherical_bessel_scipy`'s `n//2` indexing silently
+reads the wrong row for `calc_type=1`. `calculate_coeffs_ensemble_scipy` also had to be fixed
+([010a](010-dead-and-broken-code-paths.md)) before `calc_type=1` was usable end to end.
 
-```python
-def numpy_jn(x, N_qbins=-1):
-    return sp.special.spherical_jn(self.data_Lcalc, x)
-```
-
-(Guarding the `compare_spherical_bessel_scipy` call instead would also work, but that comparison is
-meaningless for the scipy backend anyway — it would be comparing scipy against itself.)
+`calc_type=1` is now a genuinely independent backend — it uses `scipy.special.spherical_jn` rather
+than the C++ recursion — and `scripts/test_physics.py` checks all three paths agree to 5.6e-11.
+That independence is what confirmed the C++ recursion after the centre-of-mass fix.
 
 ## 4b. `calc_type = 2` is dead code — two `NameError`s
 

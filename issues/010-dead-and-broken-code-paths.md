@@ -8,7 +8,7 @@ until you enable the feature, and several are reachable from documented paramete
 Grouped in one issue because the fix is the same decision each time: **repair or delete**. Nothing
 here has ever run in this checkout.
 
-## 10a. `calculate_coeffs_ensemble_scipy` — broadcasting bug
+## 10a. `calculate_coeffs_ensemble_scipy` — broadcasting bug — ✅ FIXED
 
 `modules/density_extraction.py:1452`, failing at `:1503`:
 
@@ -21,10 +21,13 @@ The leading axis is 6 (the number of fitted LMK) on one operand and 4 on the oth
 scipy ensemble backend, which is the natural independent cross-check for
 [002](002-L4-coefficients-anomalously-small.md) — that is the real cost of leaving it broken.
 
-Reproduce:
-```python
-ex.calculate_coeffs_ensemble_scipy(mols, w)   # mols from molecule_ensemble_generator
-```
+**Fixed 2026-08-08.** Two defects: `self.spherical_j` returns one row per even *order*
+(indexed by l/2) while `Y` has one row per LMK, hence the 6-vs-4 clash — resolved by
+`J[data_LMK[:,0]//2]`, mirroring the C++ `j_idx_shift`. And it never used its `w` argument,
+returning per-ensemble-member values although its docstring promises `[N,lmk,q]`, so it could not
+be used as a backend at all — it now weight-sums. Both fixes were needed before it could serve as
+the cross-check that caught [002](002-L4-coefficients-anomalously-small.md), and it is now
+covered by `scripts/test_physics.py`.
 
 ## 10b. `remove_global_offset` — two `NameError`s and a `TypeError`
 
@@ -51,12 +54,15 @@ See [006](006-measured-data-path-broken.md) for the `fit_I0` family and
 Of the four documented error models, this makes two broken (`data` here, `StoN` unusable per
 [001](001-ston-signal-to-noise-unusable.md)) and one shape-suspect (10f below).
 
-## 10d. `compare_c_coeffs_scipy` — undefined locals
+## 10d. `compare_c_coeffs_scipy` — undefined locals — ✅ FIXED
 
-`:1134`. Reached when `compare_c_coeffs = True`. References `ensemble`, `weights` and
-`input_data_coeffs` as if they were locals; they are not. Ironically this is the built-in
-C++-vs-scipy validation routine — again relevant to
-[002](002-L4-coefficients-anomalously-small.md).
+`:1133`. Reached when `compare_c_coeffs = True`. Referenced `ensemble`, `weights` and
+`input_data_coeffs` as if they were locals (it took no arguments), and ended in `sys.exit(0)`.
+
+**Fixed 2026-08-08:** it now takes `(ensemble, weights, tolerance)`, returns the largest relative
+deviation per LMK instead of exiting, and its caller builds a small ensemble from `sim_thetas`.
+This was the routine that should have caught
+[002](002-L4-coefficients-anomalously-small.md) years ago.
 
 ## 10e. `save_results` / `get_results` — dead and broken
 
@@ -71,7 +77,7 @@ C++-vs-scipy validation routine — again relevant to
 
 Given `save_emcee_backend` supersedes them, deletion is probably right.
 
-## 10f. `constant_background` produces a 1-D `experimental_var`
+## 10f. `constant_background` produces a 1-D `experimental_var` — ✅ FIXED
 
 `:1019`:
 
@@ -85,11 +91,10 @@ broadcasts far enough to survive `simulate_data`, but `prune_data:1276` does
 simulated data `data_or_sim` is False so that line is skipped and the bug hides; with imported data
 it will slice the wrong axis or raise.
 
-Prefer `constant_sigma` until this is fixed. Fix is presumably:
-
-```python
-self.experimental_var = np.ones_like(self.input_data_coeffs)
-```
+**Fixed 2026-08-08** by broadcasting to the coefficient shape at the end of the branch. The model
+now runs and is the most realistic one reachable without `StoN`: σ(q) ∝ 1/atomic_scattering(q) so
+the error grows with q (measured 7.3× across [0.5, 5] Å⁻¹), normalised on C₂₀₀ rather than on
+C₀₀₀. Its docstring was also wrong — the parameter is 1/(C₂₀₀ S/N), not the S/N.
 
 ## 10g. Dead ADM block behind `and False`
 
@@ -104,13 +109,13 @@ Permanently unreachable — roughly 25 lines of ADM handling inside `simulate_da
 Either restore the condition or delete the block; leaving `and False` in place obscures which code
 is real.
 
-## Suggested approach
+## Remaining
 
-Triage in this order:
-1. **10a** and **10d** — repair, because they unblock the cross-check needed for
-   [002](002-L4-coefficients-anomalously-small.md).
-2. **10f** — repair; it is a two-line fix on a documented parameter.
-3. **10c** — repair or remove from `README.md`'s parameter list; do not leave it advertised.
-4. **10b**, **10e**, **10g** — delete unless there is a plan to use them. A CI job that merely
-   imports every module and constructs `density_extraction` under each documented parameter
-   combination would have caught all of these.
+**10a, 10d and 10f are fixed** (2026-08-08). Still open:
+
+1. **10c** — repair `simulate_error_data` or remove the `("data", …)` model from `README.md`'s
+   parameter list; do not leave it advertised while it raises `NameError`.
+2. **10b**, **10e**, **10g** — delete unless there is a plan to use them.
+
+`scripts/test_physics.py` now exists and would have caught 10a and 10d. Extending it to construct
+`density_extraction` under each documented parameter combination would catch the rest.
