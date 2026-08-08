@@ -1378,9 +1378,13 @@ class density_extraction:
             The rotated molecular carteisan coordiantes
     """
 
-    # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], -2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    # Shift to the centre of mass. The division by the total mass belongs to the
+    # mass-weighted SUM, not to the coordinates: COM = sum_i(m_i r_i)/sum_i(m_i).
+    # Dividing `molecules` instead scaled every coordinate by 1/sum(mass) (a factor of
+    # 46 for NO2), shrinking all pairwise distances by the same factor. Assigning rather
+    # than using -=/ /= also avoids mutating the caller's array in place.
+    molecules = molecules\
+        - np.sum(molecules*self.mass[:,0], -2, keepdims=True)/np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor(molecules)
@@ -1405,9 +1409,10 @@ class density_extraction:
             The rotated molecular carteisan coordiantes
     """
 
-    # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    # Shift to the centre of mass -- see the note in rotate_to_principalI. The division
+    # by the total mass applies to the mass-weighted sum, not to the coordinates.
+    molecules = molecules\
+        - np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)/np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor_ensemble(molecules)
@@ -1496,6 +1501,13 @@ class density_extraction:
     inp = np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
         *np.expand_dims(dists[:,0], axis=1)
     J = self.spherical_j(inp)
+    if J.shape[0] != self.data_LMK.shape[0]:
+      # The C++ backend returns one row per EVEN ORDER from 0 to l_max, indexed by l/2
+      # (see c_calc_extensions.spherical_j), so it must be expanded to one row per LMK
+      # before it lines up with Y and C. This mirrors the j_idx_shift = (l/2)*... indexing
+      # inside the C++ calculate_c. The scipy backend (calc_type=1) instead broadcasts
+      # against data_Lcalc and is already LMK-indexed, hence the shape test.
+      J = J[self.data_LMK[:,0]//2]
     #print("\tJ time:", inp.shape, J.shape, time.time()-tic)
     #tic = time.time()
     # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar).
