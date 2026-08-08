@@ -31,7 +31,16 @@ from modules.density_extraction import density_extraction
 #
 # Changing this invalidates the save_sim_data cache (N is not part of the file name):
 # delete output/saved_simulations/ afterwards.
-ENSEMBLE_GRID_N = 11
+ENSEMBLE_GRID_N = 19
+
+# Half-width of the ensemble grid in units of sigma. Do NOT reduce this to buy a finer
+# spacing at fixed N: it looks like the tails beyond ~3 sigma carry negligible weight,
+# but the integrand oscillates (j_l(q*dR) with q*sigma of order radians), so truncating
+# them costs more accuracy than the finer spacing gains. Measured on the exact integral
+# E[exp(i k x)] = exp(-k^2 s^2/2) at k*s = 3 rad, N = 19:
+#   span 7 -> relative error 3e-4      span 3 -> relative error 7e-2   (200x worse)
+# 7 is the value the original code used and it is the right choice. See issues/016.
+ENSEMBLE_GRID_SPAN = 7
 
 
 ########################
@@ -389,7 +398,7 @@ def molecule_ensemble_generator(thetas):
     thetas = thetas[:,:-1]
   else:
     N = ENSEMBLE_GRID_N
-  std_ = 7
+  std_ = ENSEMBLE_GRID_SPAN
 
   d1_distribution_vals  = np.linspace(d1-std_1*std_, d1+std_1*std_, N)
   d2_distribution_vals  = np.linspace(d2-std_2*std_, d2+std_2*std_, N)

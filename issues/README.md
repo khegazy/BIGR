@@ -33,15 +33,20 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | [013](013-get-adms-molecule-hardcoded.md) | P2 | ADMs | `get_ADMs` hardcodes `"NO2"` and silently drops missing LMK |
 | [014](014-scripts-not-importable.md) | P3 | scripts | Driver scripts cannot be imported (module-scope `parse_args`, globals used in `main`) |
 | [015](015-scipy-sph-harm-pin.md) | P3 | dependencies | Pinned to scipy < 1.17 by `sph_harm`; also blocks Python > 3.10 |
+| [016](016-ensemble-quadrature-error-dominates-likelihood.md) | **P1** | likelihood | **Ensemble discretisation error dominates the PDF likelihood and makes it unsamplable** |
 
 ## Suggested order of work
 
-1. **[006](006-measured-data-path-broken.md)** — one-character fix, and it is the difference
+1. **[016](016-ensemble-quadrature-error-dominates-likelihood.md)** — the most consequential finding.
+   It corrupts the PDF likelihood surface, which is the paper's central model, and it invalidates any
+   σ calibrated from likelihood curvature at a coarse grid. A Gauss-Hermite quadrature would fix the
+   accuracy *and* make it ~9x faster at the same time.
+2. **[006](006-measured-data-path-broken.md)** — one-character fix, and it is the difference
    between the package working on real data or not.
-2. **[002](002-L4-coefficients-anomalously-small.md)** — needs your physics judgement, and if it
+3. **[002](002-L4-coefficients-anomalously-small.md)** — needs your physics judgement, and if it
    *is* a bug it invalidates the L=4 contribution to every published fit.
-3. **[012](012-setup-sh-broken.md)**, **[004](004-calc-type-1-and-2-broken.md)** — cheap, and they
+4. **[012](012-setup-sh-broken.md)**, **[004](004-calc-type-1-and-2-broken.md)** — cheap, and they
    are the first things a new user hits.
-4. **[001](001-ston-signal-to-noise-unusable.md)**, **[003](003-2dof-symmetric-path-unwired.md)** —
+5. **[001](001-ston-signal-to-noise-unusable.md)**, **[003](003-2dof-symmetric-path-unwired.md)** —
    feature-level gaps needing real work.
-5. The rest as convenient.
+6. The rest as convenient.
