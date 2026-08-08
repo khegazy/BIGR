@@ -81,28 +81,45 @@ Each of these was checked and can be excluded:
 - **The `sph_harm` → `sph_harm_y` migration** (verified identical to 5.6e-16 under the real
   broadcast shapes).
 
-## A real bug found — and it invalidates the check that was reassuring us
+## RETRACTION: the Bessel functions are fine, and `keep_inds` must stay commented out
 
-`setup_calculations` builds the C++ Bessel wrapper like this:
+An earlier version of this issue claimed (a) that `[keep_inds]` was commented out in error and
+should be restored, and (b) that this made `compare_spherical_bessel_scipy` compare misaligned rows
+so its "Passed" was worthless. **Both claims are wrong.** Reading
+`modules/c_calc_extensions.py:30-63` settles it:
 
-```python
-def calculate_even_only(x, N_qbins=-1):
-    return spherical_j_cpp(x, lmk)#[keep_inds]
+```
+Returns
+-------
+result : ... [l_max/2+1, d1, ..., dN]
+    The even spherical bessel functions from 0 to the maximum l in lmk.
 ```
 
-`lmk` here has been **padded** with any missing even orders so the recursion can build up, and
-`keep_inds` marks which rows were actually requested — **but the `[keep_inds]` filter is commented
-out.** For the default `fit_bases` (L = 2,2,4,4,4,6) a 0 is inserted, so `lmk` becomes
-`[0,2,2,4,4,4,6]` and `self.spherical_j` returns **7 rows for 6 requested LMK**.
+`spherical_j` returns **one row per even order from 0 to l_max**, indexed by `order/2` — *not* one
+row per entry of `lmk`. For L = 2,2,4,4,4,6 that is **4 rows** (j₀, j₂, j₄, j₆), not 7.
 
-Its only consumer is `compare_spherical_bessel_scipy` — the routine that prints
-`L = 4 ... Passed` and writes `plots/check_jl4_calculation.png`. **That diagnostic is therefore
-comparing misaligned rows, and its "Passed" is not evidence of anything.** This is very probably why
-an L=4 problem survived unnoticed.
+Consequences:
 
-Note the live path is *not* directly affected: `calculate_coeffs_ensemble_cpp` calls
-`calculate_c_cpp` with the unpadded `self.data_LMK[:,0]`. But an analogous misalignment in the live
-path is exactly hypothesis H1 below.
+1. **`keep_inds` is the wrong length by construction.** It is built with `len(lmk)` = 7 entries to
+   mask the padded *list*, but the array it would index has 4 rows. Uncommenting `[keep_inds]` would
+   raise or mis-select. It is almost certainly commented out *because* it broke. The whole
+   padding + `keep_inds` block at `density_extraction.py:2515-2524` is vestigial: `spherical_j`
+   already returns every even order up to l_max regardless of which appear in `lmk`, so no padding
+   was ever needed. **Recommended action: delete the padding and `keep_inds` entirely**, keeping
+   `lmk = self.data_LMK[:,0]`.
+2. **`compare_spherical_bessel_scipy` is correct.** It uses `n_idx = n//2` and indexes
+   `j_check[n_idx,:]` (`density_extraction.py:680-690`) — the right convention. So its
+   `L = 2/4/6 ... Passed` at ~1e-14 **is** valid evidence, and `plots/check_jl4_calculation.png` is
+   trustworthy.
+
+**So the C++ spherical Bessel functions are verified correct, and so is their `l/2` mapping in
+`calculate_c` (`c_calc_extensions.cpp:61`).** The L=4 problem is therefore *not* in the Bessel
+functions or their indexing, and hypothesis H1 (a Bessel row/order swap) is **eliminated**.
+
+That leaves the remaining factors in Eq. 21 as the candidates: the spherical harmonics `Ylk`, the
+molecular-frame angles (θ, φ) feeding them, the pairing of `dist_sms_scat_amps` with the distance
+axis, or the prefactor. The prefactor can be checked by hand and is *not* the cause — for L = 2/4/6
+it evaluates to 125.2 / 93.3 / 77.6, all the same order.
 
 ## Why nothing caught this: every independent cross-check is broken
 
@@ -114,15 +131,14 @@ There is currently **no working second opinion** on the C coefficients anywhere 
 | `calculate_coeffs_ensemble_scipy` — the independent backend | broadcasting bug, `(6,3,52,1,1)` vs `(4,3,52,1,1)` ([010a](010-dead-and-broken-code-paths.md)) |
 | `calc_type = 1` (scipy) | arity bug at `:680` ([004](004-calc-type-1-and-2-broken.md)) |
 | `calc_type = 2` (python) | two `NameError`s ([004](004-calc-type-1-and-2-broken.md)) |
-| `compare_spherical_bessel_scipy` | misaligned rows, see above |
+| `compare_spherical_bessel_scipy` | **works correctly** (uses `n//2`); it validates j_l but says nothing about the rest of Eq. 21 |
 
 Fixing any one of these is worth more than further inspection by eye.
 
 ## Ranked hypotheses
 
-1. **H1 — row/order misalignment in the live path.** Fits the evidence best: if the L=4 rows receive
-   j₆ and the L=6 row receives j₄, C₄ becomes small and C₆ large, which is exactly the observed
-   pattern. The `keep_inds` bug proves this class of error is present in the codebase.
+1. ~~**H1 — Bessel row/order misalignment.**~~ **ELIMINATED** — see the retraction above. The
+   Bessel values and their `l/2` mapping are both verified correct.
 2. **H2 — `Ylk` axis ordering.** In `calculate_coeffs_ensemble_cpp:1636` `Ylk` is built from
    `data_Lcalc` shaped `(n_lmk,1,1,1)` and transposed `(0,2,3,1)` at
    `c_calc_extensions.py:120` before being passed. If the pairwise-distance axis ends up misaligned
