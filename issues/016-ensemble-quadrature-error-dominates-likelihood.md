@@ -13,9 +13,10 @@ retrieval yet.
 an outer-product grid. The quadrature is far too coarse at any affordable grid size, and its error —
 **not the data** — dominates how the likelihood varies with Θ. Consequences:
 
-- The likelihood surface is **rugged and multi-modal on sub-percent scales in Θ**, so emcee cannot
-  sample it (acceptance ≈ 2.7%, and τ grows linearly with chain length instead of plateauing, so the
-  convergence criterion `iteration > 100·τ` is never satisfiable).
+- It **contributes to** a rugged, multi-modal likelihood surface on sub-percent scales in Θ, which
+  emcee cannot sample (acceptance ≈ 2.7 %, and τ grows linearly with chain length instead of
+  plateauing, so `iteration > 100·τ` is never satisfiable). But see the correction below: the
+  quadrature is *not* the sole cause of the ruggedness.
 - Any σ calibrated by measuring likelihood curvature at a coarse grid is **wrong**, because the
   curvature being measured is quadrature noise.
 - The error is largest for small Θ perturbations, i.e. exactly the regime that sets the reported
@@ -52,6 +53,47 @@ even monotonic:
 
 At large offsets the quadrature does converge (ΔlogL at +10 % settles near −2.5 for every
 N ≥ 31), which confirms the problem is specifically the small-Θ behaviour.
+
+## Correction: how much of the ruggedness is actually the quadrature?
+
+**Less than this issue originally claimed.** The delta model (`density_model: "delta"`,
+`single_molecule_generator`) evaluates a single geometry with weight 1 — there is no ensemble sum, so
+**no quadrature error is possible**. Yet with delta-generated data (so `logL(truth) == 0` exactly)
+its likelihood is *also* non-monotonic near truth:
+
+```
+offset in d1    dlogL          offset in d1    dlogL
+   -2.00%     -2370.3            +0.10%        -65.0
+   -1.00%      -397.1            +0.20%        -42.3   <- better than +0.10%
+   -0.50%      -365.7            +0.50%        -44.6
+   -0.20%      -152.7            +1.00%       -123.2
+   -0.10%      -382.9  <- worse  +2.00%      -5053.8
+    0.00%         0.0               than -0.20%
+```
+
+So a rugged surface is not by itself evidence of quadrature error. Two sources have to be separated:
+
+1. **Genuine structure in the exact likelihood.** The quadratic fit above gives 1σ ≈ 0.53 mÅ on d₁,
+   so these ±0.1 % offsets are ≈2.5σ out. Beyond ~2σ, a χ² built from oscillatory fringe data
+   (`j_l(q·ΔR)` integrated to q = 10 Å⁻¹) legitimately develops side lobes and local minima — the
+   usual fringe/phase ambiguity of interferometric fitting. This structure is **real** and is present
+   even with a perfect integrator.
+2. **Quadrature error.** Distinguished from (1) by one decisive property: **it must shrink under grid
+   refinement.** Genuine physical structure cannot depend on the integration grid, whereas the tables
+   above show logL at a *fixed* Θ changing by up to 25 000 % between N = 11 and N = 91, and the
+   fixed-data bias at Θ_truth being −448 at N = 19. That evidence is unaffected by (1) and still
+   stands.
+
+**What changes:** the claim "the quadrature error makes the surface unsamplable" is too strong. Some
+of the sampling difficulty is intrinsic. So fixing the quadrature is necessary for an unbiased
+forward model (consequence (2) below) but may **not** on its own make the posterior easy to sample —
+better initialisation near the global mode, tempering, or a sampler suited to multimodal targets may
+be needed regardless. This is consistent with the paper's own design, which locates Θ\* with a
+separate mode search (`modules/mode_search.py`) rather than reading it off the MCMC marginals.
+
+The delta scan above was run through a hand-built configuration rather than the normal parameter
+path (see the note in [009](009-ensemble-grid-size-parameter-ignored.md) about
+`sim_thetas[:-1]`), so it is worth repeating through a supported route before leaning on it hard.
 
 ## Why it is not self-cancelling
 

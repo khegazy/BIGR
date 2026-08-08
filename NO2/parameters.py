@@ -35,7 +35,7 @@ def get_parameters(run=None, molecule=None):
       # the ADMs available in this repo -- see how_to_run.md, "Why not StoN". sigma = 0.163
       # was already the alternative suggested in this file and is the right scale: it puts
       # the 1-sigma resolution on the N-O distances at a few mAngstrom.
-      "simulate_error"     : ("constant_sigma", 0.05),#("StoN", (100, [0.5,4]))
+      "simulate_error"     : ("constant_sigma", 0.163),#("StoN", (100, [0.5,4]))
       "N_mode_samples"     : 25,
       "mode_std_grid"      : np.array([-1, 0, 1]),
       "mode_tolerance"     : 0.01,
@@ -44,7 +44,7 @@ def get_parameters(run=None, molecule=None):
       "dom"                : None,
       "fit_bases"          : None,
       "isMS"               : False,
-      "fit_range"          : [0.5, 10],
+      "fit_range"          : [0.5, 5],
       "elEnergy"           : 3.7e6,
       "sim_thetas"         : None,
       "init_thetas"        : None,
