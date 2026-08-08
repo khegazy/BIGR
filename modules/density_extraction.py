@@ -622,9 +622,15 @@ class density_extraction:
     # Check Jn calculations
     self.compare_spherical_bessel_scipy()
 
-    # Check C coefficient calculations
+    # Check C coefficient calculations. Build a small ensemble from sim_thetas to compare
+    # the two backends on; the scipy path is slow so keep it to a handful of geometries.
     if compare_c_coeffs:
-      self.compare_c_coeffs_scipy()
+      if self.ensemble_generator is not None and "sim_thetas" in self.data_params:
+        check_ens, check_w = self.ensemble_generator(
+            np.expand_dims(np.array(self.data_params["sim_thetas"])[:-1], 0))
+        self.compare_c_coeffs_scipy(check_ens, check_w)
+      else:
+        print("WARNING: compare_c_coeffs needs an ensemble_generator and sim_thetas")
 
 
   def make_output_dirs(self, make_plot_dirs):
@@ -1130,37 +1136,48 @@ class density_extraction:
       raise RuntimeError("ERROR: input_data_coeffs_var is still None!!!")
 
 
-  def compare_c_coeffs_scipy(self):
+  def compare_c_coeffs_scipy(self, ensemble, weights, tolerance=1e-8):
     """
-    Compare C coefficients calculated using C++ spherical bessel functions
-    data_params and those calculated using scipy spherical bessel functions.
-    Comparisons are printed out and the function exits the program after.
+    Compare the C coefficients from the C++ backend against the scipy backend for the
+    same ensemble. This is the cross-check that would have caught the centre-of-mass
+    bug in rotate_to_principalI, so it is worth running whenever either backend changes.
+
+        Parameters
+        ----------
+        ensemble : 4D np.array of type float [N,ensemble,atoms,xyz]
+            The ensemble of molecular geometries to compare on
+        weights : 2D np.array of type float [N,ensemble]
+            The weight of each geometry in the ensemble
+        tolerance : float
+            Maximum allowed relative deviation between the two backends
+
+        Returns
+        -------
+        max_rel_dev : float
+            The largest relative deviation found, per LMK
+
+    Previously this took no arguments yet referenced `ensemble`, `weights` and
+    `input_data_coeffs` as if they were locals, so it raised NameError on first use, and
+    it ended in sys.exit(0). It now takes the ensemble explicitly and returns instead of
+    exiting. Both backends weight-sum internally, so no external chunking is needed.
     """
 
-    # C coefficients using C++ calculations
-    input_data_coeffs_cpp =\
-        self.calculate_coeffs_ensemble_cpp(ensemble, weights)[0]
-    print("TEST RES CPP", input_data_coeffs[:,100:130])
+    c_cpp = self.calculate_coeffs_ensemble_cpp(copy(ensemble), weights)[0]
+    c_sci = self.calculate_coeffs_ensemble_scipy(copy(ensemble), weights)[0]
 
-    # C coefficients using scipy calculation
-    input_data_coeffs_py = np.zeros(
-        (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
-    ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
-    while ind < ensemble.shape[1]:
-      ind_end = np.min([ensemble.shape[1], ind + ind_step])
-      c_calc = self.calculate_coeffs_ensemble_scipy(
-          ensemble[:,ind:ind_end], weights[:,ind:ind_end])
-      input_data_coeffs_py = input_data_coeffs_py\
-          + np.sum(np.sum(c_calc\
-          *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1),
-          0), 0)
-      self.C_distributions.append(c_calc)
-      ind = ind_end
-    
-    print("TEST RES PYT", input_data_coeffs_py[:,100:130])
-    print("L1 of the difference: {}".format(
-        np.sum(np.abs(input_data_coeffs_cpp - input_data_coeffs_py))))
-    sys.exit(0)
+    print("#####  C++ vs scipy C coefficients  #####")
+    max_rel_dev = 0.
+    for i, lmk in enumerate(self.data_LMK):
+      ref = np.sqrt(np.nanmean(c_cpp[i]**2))
+      dev = np.nanmax(np.abs(c_cpp[i] - c_sci[i]))/max(ref, 1e-300)
+      max_rel_dev = max(max_rel_dev, dev)
+      print("\tLMK = {} \t rms = {:.5g} \t rel dev = {:.3g} ... {}".format(
+          lmk, ref, dev, "Passed" if dev < tolerance else "FAILED"))
+    if max_rel_dev >= tolerance:
+      print("WARNING: backends disagree by {:.3g} (tolerance {:.3g})".format(
+          max_rel_dev, tolerance))
+
+    return max_rel_dev
 
 
   def save_simulated_data(self):
@@ -1526,13 +1543,16 @@ class density_extraction:
         *np.expand_dims(np.expand_dims(C, -1), -1)*J*Y), axis=1)
     #print("\tsum time:", time.time()-tic)
 
-    #plt.hist(c_calc[-1,2,:], bins=25, weights=w[:,0])
-    #plt.savefig("testDist.png")
-    #plt.close()
     # Normalize by I0
     c_calc *= self.I
 
-    return c_calc.transpose((2,3,0,1))
+    # Weight-sum over the ensemble so this matches the documented [N,lmk,q] contract and
+    # the C++ backend, which does the ensemble sum inside calculate_c. Previously this
+    # returned per-ensemble-member coefficients and ignored `w` entirely, so assigning it
+    # to self.calculate_coeffs (calc_type=1) produced an array whose leading axis was the
+    # ensemble; simulate_data then indexed it as if it were the LMK axis.
+    c_calc = c_calc.transpose((2,3,0,1))                 # [N, ensemble, lmk, q]
+    return np.sum(c_calc*np.expand_dims(np.expand_dims(w, -1), -1), axis=1)
 
 
   def calculate_c_ensemble_multiProc(self, ensembles, weights):
@@ -2524,19 +2544,17 @@ class density_extraction:
       # Use the C++ implementation of spherical bessel functions
       
       if np.sum(self.data_LMK[:,0] % 2) == 0:
-        ind = 0
+        # spherical_j_cpp returns one row per EVEN ORDER from 0 to max(lmk), indexed by
+        # l/2, regardless of which orders appear in lmk (see its docstring). It therefore
+        # needs no padding: the previous version inserted the missing even orders into
+        # `lmk` and built a `keep_inds` mask to remove them again, but that mask had
+        # len(lmk) entries while the returned array has max(lmk)/2+1 rows, so applying it
+        # would have raised. That is why `#[keep_inds]` was commented out. Only max(lmk)
+        # matters here, so pass the L values through unchanged.
         lmk = self.data_LMK[:,0]
-        keep_inds = np.ones(len(lmk)).astype(bool) 
-        for i in np.arange(np.amax(lmk)//2+1):
-          if i*2 not in lmk:
-            for j in np.arange(len(lmk)):
-              if i*2 < lmk[j]:
-                lmk = np.insert(lmk, j, i*2, axis=0)
-                keep_inds = np.insert(keep_inds, j, False, axis=0)
-                break
-     
+
         def calculate_even_only(x, N_qbins=-1):
-          return spherical_j_cpp(x, lmk)#[keep_inds]
+          return spherical_j_cpp(x, lmk)
 
         self.spherical_j = calculate_even_only
       if self.do_multiprocessing:
@@ -2546,8 +2564,17 @@ class density_extraction:
 
     elif self.data_params["calc_type"] == 1:
       # Using scipy implementation of spherical bessel functions
-      def numpy_jn(x):
-        return sp.special.spherical_jn(self.data_Lcalc, x) 
+      # Return one row per EVEN ORDER from 0 to l_max, indexed by l/2 -- the same
+      # convention as the C++ wrapper (see c_calc_extensions.spherical_j). Keeping both
+      # backends on one convention means compare_spherical_bessel_scipy's n//2 indexing
+      # and calculate_coeffs_ensemble_scipy's expansion work for either.
+      # N_qbins is accepted and ignored to match calculate_even_only(x, N_qbins=-1);
+      # compare_spherical_bessel_scipy passes two arguments and used to raise TypeError.
+      even_orders = np.arange(0, int(np.amax(self.data_LMK[:,0])) + 1, 2)
+
+      def numpy_jn(x, N_qbins=-1):
+        n = np.reshape(even_orders, [-1] + [1]*np.ndim(x))
+        return sp.special.spherical_jn(n, np.expand_dims(x, 0))
 
       self.spherical_j = numpy_jn
       self.calculate_coeffs = self.calculate_coeffs_ensemble_scipy
