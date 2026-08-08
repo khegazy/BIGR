@@ -18,7 +18,7 @@ diffraction experiments*, **Communications Physics 6, 325 (2023)**,
 5. [Staging the ADMs](#5-staging-the-adms)
 6. [Every code change](#6-every-code-change)
 7. [Parameter reference and what each knob costs](#7-parameter-reference-and-what-each-knob-costs)
-8. [Why the run uses `constant_sigma` and not `StoN`](#8-why-the-run-uses-constant_sigma-and-not-ston)
+8. [Choosing an error model](#8-choosing-an-error-model)
 9. [HDF5 file formats](#9-hdf5-file-formats)
 10. [Bringing your own measured data](#10-bringing-your-own-measured-data)
 11. [Gotchas](#11-gotchas)
@@ -545,7 +545,7 @@ clause.
 | `fit_range` | `[0.5, 10]` | `[0.5, 10]` | With `q_per_pix` doubled this gives `dom` = 118 points instead of the paper's 236. |
 | `q_per_pix` | `3.5/83` | `2*3.5/83` | Halves `dom` again. |
 | `calc_type` | 0 | 0 | C++ backend. |
-| `simulate_error` | `("StoN", (100, [0.5,4]))` | `("constant_sigma", 0.05)` | See [§8](#8-why-the-run-uses-constant_sigma-and-not-ston). |
+| `simulate_error` | `("StoN", (100, [0.5,4]))` | `("constant_sigma", 0.05)` | See [§8](#8-choosing-an-error-model). |
 | `ADM_params["temperature"]` | 100 | 1 | Only 1/10/20/30/300 K exist; cold gives far larger high-order ADMs. |
 | `ADM_params["eval_times"]` | `linspace(37.5,41.5,100)` | `linspace(16.0,20.0,25)` | Must stay inside −0.2…40.3 ps and should bracket the 18 ps revival. |
 | `mode_tolerance` | 1e-4 | 0.01 | Must be met 3 consecutive times. |
@@ -595,67 +595,73 @@ hardcoded 1500-sample random-search fallback at `:333` if the grid search stalls
 
 ---
 
-## 8. Why the run uses `constant_sigma` and not `StoN`
+## 8. Choosing an error model
 
-`("StoN", (SNR, q_range))` is the paper's Poissonian noise model and the one you want for
-publication-grade results. **It now runs end to end** — ADM import, 2-D diffraction simulation,
-Legendre refitting and error propagation all complete. But with the ADM set in this repository
-it cannot produce a usable signal-to-noise, so the posterior is prior-dominated and the
-retrieval is meaningless.
+There are four, and after the centre-of-mass fix (§6) three of them work. Pick by how faithful you
+need the noise to be.
 
-Measured mean |C_lmk| / σ_lmk inside `fit_range`, at 1 K over the 16–20 ps revival:
-
-| L M K | 25 eval_times | 200 eval_times |
+| model | error bars | status |
 |---|---|---|
-| 2 0 0 | 0.055 | 0.153 |
-| 2 0 2 | 0.015 | 0.042 |
-| 6 0 0 | 0.0093 | 0.026 |
+| **`("StoN", (SNR, q_range))`** | per-coefficient **and** per-q, from Poisson noise on simulated diffraction images propagated through the ADM fit | **works — use this for publication-grade results.** Needs the vendored modules and the ADMs |
+| `("constant_background", σ)` | per-q: σ(q) ∝ 1/atomic_scattering(q), so the error grows with q; normalised on C₂₀₀ | works. The best approximation with no ADM dependency |
+| `("constant_sigma", σ)` | one σ for every coefficient and every q | works, crudest |
+| `("data", (order, Wn))` | taken from a real measurement | **broken** — [issues/010c](issues/010-dead-and-broken-code-paths.md) |
 
-The cause is structural. `simulate_error_StoN` converts lab-frame errors into molecular-frame
-C_lmk errors through `inv(Aᵀ W A)`, where `A` is the **mean-subtracted** ADM matrix
-(`density_extraction.py:2946-2953`). Weak alignment makes `A` nearly singular and the variance
-explodes. The variance falls only as 1/N_times, i.e. S/N grows as √N_times — confirmed by the
-table above (0.055 → 0.153 for an 8× increase, ratio 2.8 ≈ √8). Reaching S/N ≈ 10 would need
-roughly **10⁶ time points**, which is not a tractable fix.
+### `StoN` — the paper's model, and it works
 
-What would actually fix it, in rough order of leverage:
-1. **Stronger alignment.** These ADMs peak at |A − mean| ≈ 0.07 at 1 K. A higher pump fluence
-   (paper Fig. 6c) or a genuinely deeper revival raises `A` and the variance falls as `A²`.
-2. **Wider q and more C_lmk.** `fit_range` is only `[0.5, 5]` here against the paper's
-   `[0.5, 10]`–`[0.5, 20]`, and each extra C_lmk adds an angular constraint.
-3. **A different ADM set.** The MATLAB `.dat` ADMs on the older laptop
-   (`…/density_extraction/ADMs/SLAC/10TW_100fs_{12p5K,50K}/`) span −0.2 → 800 ps and cover
-   12.5 K and 50 K, so the original `eval_times = linspace(37.5, 41.5, 100)` window works
-   unchanged. Converting them means reading `A{L}{K}.dat` (1-D, 2768 points) with `np.loadtxt`
-   and writing `A{L}{K}.npy` plus `times.npy` from `time.dat`. Use the **`A`** files, not the
-   `D{L}{K}.dat` ones — those are `(225, 2768)` matrices, not the ADMs.
+At the paper's standard SNR = 100 with 25 `eval_times`, measured per-LMK S/N:
 
-To switch back, set `"simulate_error": ("StoN", (100, [0.5, 4]))` in `parameters.py` and delete
-`output/saved_simulations/`.
+| LMK | S/N |
+|---|---|
+| [2 0 0] | **144.9** |
+| [4 0 0] | **28.7** |
+| [6 0 0] | **16.1** |
+| [2 0 2] | 2.2 |
+| [4 0 2] | 2.2 |
+| [4 0 4] | 0.006 |
 
-### The retrieval itself is verified correct
+The k = 0 coefficients are well measured. The much lower S/N on k ≠ 0 is **expected physics**, not a
+defect: those terms are constrained by the azimuthal ADMs A^L_{0K} with K ≠ 0, which are genuinely
+smaller than the K = 0 moments.
 
-Independently of the noise model, the forward model and likelihood were checked directly with
-the PDF model, where the density generator that fits the data is the same one that simulated it:
+An earlier version of this document reported StoN as unusable, with S/N ≈ 0.05. That measurement was
+taken before the centre-of-mass fix, when the C coefficients were ~500× too small and partly
+Bessel-instability noise — the error propagation was correct all along; the signal it was compared
+against was not. See [issues/001](issues/001-ston-signal-to-noise-unusable.md).
 
-- `log_likelihood(truth) = 0` **exactly** — the model reproduces the simulated coefficients at
-  Θ_truth = `[1.35, 0.03, 1.05, 0.02, 2.34, 0.01]`.
-- All 12 one-sided perturbations (±, six parameters) **lower** the log-likelihood, so truth is
-  the maximum in every dimension.
+Worth knowing about the mechanism either way: `simulate_error_StoN` converts lab-frame errors into
+molecular-frame C_lmk errors via `inv(Aᵀ W A)` with the **mean-subtracted** ADM matrix `A`
+(`density_extraction.py:2946-2953`). So the variance scales as 1/A² — stronger alignment helps
+quadratically — and only as 1/N_times, meaning adding time points is an inefficient lever (S/N grows
+as √N_times).
 
-Two observations worth flagging, neither of which affects self-consistency:
+### `constant_sigma` — what the runs in this document use
 
-- The **L = 4 coefficients are ~10⁻⁶** while L = 2 and L = 6 are ~10⁻². The paper's Fig. 3c shows
-  M₄₀ₖ only ~2× smaller than M₂₀ₖ, so a 10⁴ suppression looks anomalous. It could be a genuine
-  cancellation for this particular geometry in its principal-axis frame, or a bug. **This was not
-  resolved** and is worth a look; it means L = 4 contributes essentially nothing to the fit here.
-- The delta model (`density_model="delta"`) is *not* self-consistent against ensemble-simulated
-  data, because the data is generated by `molecule_ensemble_generator` (with widths) while the
-  model evaluates a single geometry. Truth is then not the likelihood maximum. That is the
-  expected P^(δ) systematic of the paper's Fig. 8, but it is much larger here than the paper's,
-  so treat the delta model as a plumbing smoke test rather than a retrieval.
+Simple and ADM-free, which makes it a good default while you are getting the pipeline working, but its
+error bars are uniform in both q and LMK, so it cannot reproduce the *shape* of real noise. Calibrate
+it as described in §7.
 
----
+### `constant_background` — the middle option
+
+σ(q) ∝ 1/atomic_scattering(q), which is the physically right shape for a detector-level background
+expressed in sms units — measured 7.3× growth across [0.5, 5] Å⁻¹ — and it is normalised on C₂₀₀, a
+coefficient that is actually in `fit_bases`, rather than on C₀₀₀. It still applies the same σ(q) to
+every LMK, so it is an approximation to StoN, not a substitute. **Note the parameter is 1/(C₂₀₀ S/N),
+not the S/N**: 0.01 gives C₂₀₀ S/N ≈ 108. The docstring had this inverted and is now corrected.
+
+### The retrieval is verified against known truth
+
+Independently of the noise model:
+
+- `logL(truth) = 0` **exactly** — the simulated data is the noiseless forward model at `sim_thetas`
+  (no noise is ever added to the coefficients; the commented-out lines at
+  `density_extraction.py:1107-1110` would have done it), so this is an identity and confirms
+  self-consistency rather than goodness of fit.
+- All 12 one-sided parameter perturbations lower `logL`, so truth is a local maximum.
+- The C++, scipy-combination and scipy-Bessel backends agree to ~1e-10.
+- Retrieval recovers all six Θ to within 0.1σ of truth — see §1.
+
+All of these are asserted by `scripts/test_physics.py`.
 
 ## 9. HDF5 file formats
 
