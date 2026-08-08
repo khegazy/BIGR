@@ -92,37 +92,40 @@ Outputs land in:
 
 ### What the fast run actually produces
 
-Simulated asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ∈ [0.5, 5] Å⁻¹, ADMs at 1 K,
-32 walkers × 1000 steps (≈10 min), then the mode search (≈8 min):
+> **These numbers are superseded and should not be quoted.** They were produced with
+> `ENSEMBLE_GRID_N = 11`, a grid coarse enough that the ensemble-quadrature error, not the data,
+> dominated the likelihood — see
+> [issues/016](issues/016-ensemble-quadrature-error-dominates-likelihood.md). The emcee acceptance
+> fraction at that grid was 0.027 versus 0.230 at the shipped `N = 19`. The table is kept only to
+> document what the coarse grid produced, and is being replaced by a longer run at `N = 19`.
 
-| Θ | truth | posterior median | σ^Θ (resolution) | mode Θ\* | unit |
+Simulated asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ∈ [0.5, 5] Å⁻¹, ADMs at 1 K,
+32 walkers × 1000 steps, `ENSEMBLE_GRID_N = 11`:
+
+| Θ | truth | posterior median | σ^Θ | mode Θ\* | unit |
 |---|---|---|---|---|---|
 | ⟨NO⁽¹⁾⟩ | 1.35000 | 1.42204 | 0.30611 | 1.24165 | Å |
-| σ(NO⁽¹⁾) | 0.03000 | **0.02858** | 0.01386 | 0.02865 | Å |
+| σ(NO⁽¹⁾) | 0.03000 | 0.02858 | 0.01386 | 0.02865 | Å |
 | ⟨NO⁽²⁾⟩ | 1.05000 | 1.07322 | 0.12957 | 1.07562 | Å |
-| σ(NO⁽²⁾) | 0.02000 | **0.01968** | 0.00608 | 0.02208 | Å |
-| ⟨∠ONO⟩ | 2.34000 | **2.34503** | 0.55251 | 2.39389 | rad |
-| σ(∠ONO) | 0.01000 | **0.01019** | 0.00963 | 0.01023 | rad |
+| σ(NO⁽²⁾) | 0.02000 | 0.01968 | 0.00608 | 0.02208 | Å |
+| ⟨∠ONO⟩ | 2.34000 | 2.34503 | 0.55251 | 2.39389 | rad |
+| σ(∠ONO) | 0.01000 | 0.01019 | 0.00963 | 0.01023 | rad |
 
-The **three width parameters are recovered to a few percent** and ⟨∠ONO⟩ is essentially exact —
-this is the paper's central claim, that the method measures the *width* of |Ψ(R)|², reproduced.
-The two mean distances land within 1σ of truth but with a wide marginal posterior (±0.31 Å on
-⟨NO⁽¹⁾⟩), which is expected and consistent with the paper: at only q ≤ 5 Å⁻¹ and 6 C_lmk
-coefficients the Θ parameters are strongly correlated, and marginal widths are far larger than
-conditional ones (paper Fig. 6a shows σ^Θ improving steadily with q; Fig. 7e shows correlation
-falling as q grows). The σ(NO⁽¹⁾)–σ(NO⁽²⁾) anti-correlation is plainly visible in the corner plot.
+All six parameters land within 1σ of truth and the three widths within a few percent, which is
+encouraging — but at this grid the posterior shape is not trustworthy, so treat the σ^Θ column as
+meaningless and the agreement as partly luck.
 
-**This run is deliberately not converged** — `has_converged = False`, τ ≈ 105 with a chain of
-1000 (length/τ ≈ 8.6), acceptance ≈ 2.7%. The walker-trajectory plot shows the cloud still
-expanding from its tight initialisation at step 1000, which is exactly why τ keeps growing. Treat
-these numbers as a working demonstration, not a physics result. To tighten them: raise
-`max_iterations`, widen `fit_range`, restore `ENSEMBLE_GRID_N = 19`, and lower σ.
+Diagnostics to check on any run, via `python scripts/analyse_run.py`:
 
-Plots written to `NO2/plots/NO2_symbreak/3dof/sim/PDF/1K_10TW_100fs/`:
-`fast_run_corner.png` (P(Θ|C) with truth overlaid) and `fast_run_chains.png` (walker
-trajectories and log-probability).
+- **acceptance fraction** — should be ~0.2–0.5. Much lower means the sampler is stuck.
+- **τ / steps** — must fall below 0.01 for the built-in convergence test (`iteration > 100·τ`) to
+  pass. If it sits at a constant ~0.11 across batches, emcee's estimator is saturating against the
+  chain length and the chain has not equilibrated.
+- **(median − truth)/σ^Θ** — the correctness check, since the data is simulated from a known Θ.
 
----
+A likely cause of slow equilibration is the initialisation: `init_thetas_std_scale = 0.002` starts
+the walkers in a ball ~2.7 mÅ wide while the posterior is ~0.3 Å, roughly 100× larger, so the chain
+spends a long time expanding rather than sampling. Raising it to ~0.1 is worth trying.
 
 ## 2. Environment
 
