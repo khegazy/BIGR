@@ -71,6 +71,18 @@ offset in d1    dlogL          offset in d1    dlogL
     0.00%         0.0               than -0.20%
 ```
 
+**Direct evidence that the grid nevertheless drives the sampling difficulty:** the emcee acceptance
+fraction, on otherwise identical configurations (σ = 0.163, q ≤ 5 Å⁻¹, 32 walkers, asymmetric NO₂):
+
+| `ENSEMBLE_GRID_N` | acceptance fraction |
+|---|---|
+| 11 | **0.027** (pathological) |
+| 19 (shipped default) | **0.230** (healthy; emcee's useful range is ~0.2–0.5) |
+
+An 8.5× change in acceptance from the integration grid alone — nothing else differed — confirms the
+grid is what broke sampling at N = 11, even though it is not the *only* source of structure in the
+surface.
+
 So a rugged surface is not by itself evidence of quadrature error. Two sources have to be separated:
 
 1. **Genuine structure in the exact likelihood.** The quadratic fit above gives 1σ ≈ 0.53 mÅ on d₁,
