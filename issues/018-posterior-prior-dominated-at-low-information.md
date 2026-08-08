@@ -1,11 +1,29 @@
-# 018 — At low information content the posterior is prior-dominated and the widths run to their bound
+# 018 — At low information the posterior is prior-dominated and the widths run to their bound
 
-**Severity** P2 (not a code defect — a property of the model that will silently mislead)
+**Severity** P3 (the *guard* is worth adding; the measurement that motivated it was invalid)
 **Area** priors / interpretation
-**Status** open. Behaviour understood and reproducible; needs a documented guard, not a fix to the
-physics.
+**Status** **substantially revised 2026-08-08** — see the note below before reading further.
 
-## What happens
+> ## The measurement below was taken with the centre-of-mass bug present
+>
+> Every number in this issue came from a run in which `rotate_to_principalI` scaled each molecule by
+> 1/total_mass ([002](002-L4-coefficients-anomalously-small.md)), so the C coefficients were wrong
+> and — because the resulting tiny distances destabilised the C++ Bessel recursion — largely noise.
+> That is *why* the configuration carried no information, not any property of the priors.
+>
+> With the bug fixed and σ calibrated to the paper's SNR = 100, the same PDF model recovers all six
+> parameters to within **0.09σ** of truth at only 100 steps, with the width parameters landing at
+> 0.02998 / 0.01997 / 0.01005 against truths of 0.030 / 0.020 / 0.010 — nowhere near their prior
+> bound. So the prior-domination described below is **not** a property of this model at sensible
+> settings.
+>
+> **What survives:** the general point that a width parameter accumulating at `sig_max` is a
+> diagnostic of an uninformative fit, and that the failure is silent because acceptance,
+> stationarity and `logL(truth) = 0` all look fine. That is still worth guarding, which is why this
+> issue is revised rather than deleted. **What does not survive:** the claim that BIGR's priors make
+> the posterior prior-dominated in practice, and the specific Θ table.
+
+## What was observed (with the bug present — see above)
 
 A 2-hour run (asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ≤ 5 Å⁻¹, 32 walkers × 2400
 steps, `ENSEMBLE_GRID_N = 19`) initialised **at** the ground truth does the following:
@@ -69,7 +87,7 @@ there is no truth to compare against, would have no indication anything was amis
    q ≤ 10–20 Å⁻¹), which is why it lands in the uninformative limit. Worth stating explicitly what
    minimum SNR/q makes the widths identifiable.
 
-## Caveat on the σ used here
+## Original caveat on the σ used here
 
 `constant_sigma = 0.163` is not a physically calibrated noise level — it was derived from likelihood
 curvature at a coarse ensemble grid, where that curvature was dominated by quadrature noise

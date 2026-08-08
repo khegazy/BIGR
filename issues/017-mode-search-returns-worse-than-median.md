@@ -2,7 +2,13 @@
 
 **Severity** P2 (the reported Θ\* can be worse than doing nothing)
 **Area** mode search
-**Status** open
+**Status** open, but **needs re-verification**: the numbers below were measured on a posterior
+produced while the centre-of-mass bug was present
+([002](002-L4-coefficients-anomalously-small.md)), so the landscape `weight_avg_search` was
+navigating was itself corrupt. The *structural* criticism stands independently of that — a
+probability-weighted centroid is not a maximum unless the posterior is symmetric and unimodal, and
+nothing checks that the returned point improves on its starting point — but the specific
+logL values should be re-measured on a valid run before quoting them.
 
 ## Symptom
 
