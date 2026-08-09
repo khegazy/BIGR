@@ -4,14 +4,32 @@ Molecular Geometry Retrieval Using Bayesian Inferencing
 This package approximates the probability distribution |Psi(r,t)|^2 of time dependent molecular geometries measured by ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy (althought not required) to access the molecular frame via a system of integral equations. This package sets up those molecular frame dependent equations and solves for the given posterior P(r,t|Theta) which approximates |Psi(r,t)|^2. Using the Metropolis-Hastings algorithm, implemented by the [emcee](https://emcee.readthedocs.io/en/stable/) package, we solve retrieve the marginalized posterior P(Theta,t). Using the `mode_search.py` method one can find the optimal Theta parameters that produces a posterior that best describes the observed data (C coefficients). This method is fully described in this [publication](https://arxiv.org/abs/2207.09600).
 
 
+> **Start with [`how_to_run.md`](how_to_run.md).** It is a verified, step-by-step procedure for
+> running the NO₂ analysis on a machine that is not the original SLAC/LCLS cluster, and it documents
+> every code change that was needed to get there. It also specifies the HDF5 layouts, including the
+> one you need to produce to analyse **your own measured data**.
+>
+> Known defects are catalogued one-per-file in [`issues/`](issues/) — start at
+> [`issues/README.md`](issues/README.md).
+>
+> Before and after changing anything in the forward model, run the physics regression suite:
+> `MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py` (11 tests).
+
 Setup and Prerequisites
 -----------------------
 
 **Setup**</br>
-run the setup script `bash setup.sh`
+**Do not run `setup.sh`** — it has an unterminated quote on its last line and so cannot be parsed,
+tests an undefined variable so two of its symlinks silently never happen, and its two `wget` URLs
+point at a typo'd host and at GitHub `/blob/` HTML pages rather than raw files
+([`issues/012`](issues/012-setup-sh-broken.md)). Use the commands in
+[`how_to_run.md` §1](how_to_run.md) instead, which are tested.
 
 **Prerequisites**</br>
-Below is the minimum required version of Python, Python packages, scattering amplitudes, and simulation scripts:
+The original minimum versions are below. Note the code no longer runs on numpy < 1.24 idioms it used
+to depend on (`np.complex`, `np.int`, `np.float` were removed) — see the code-change table in
+[`how_to_run.md`](how_to_run.md). The combination actually tested is Python 3.10.20 with
+numpy 2.2.6, scipy 1.15.3, matplotlib 3.10.9, h5py 3.16.0, emcee 3.1.6 and corner 2.3.0.
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
 - `Scipy >= 1.6.2`
@@ -21,6 +39,10 @@ Below is the minimum required version of Python, Python packages, scattering amp
 - `ctypes >= 1.1.0`
 - `emcee >= 3.0.2`
 - `corner >= 2.2.1`
+
+The two "optional" modules below are **not optional** for the `StoN` error model, and are no longer
+downloads: they are vendored in [`external_artifacts/`](external_artifacts/) together with the
+electron scattering amplitudes, so nothing outside this repository has to exist.
 
 
 Optional modules and scripts to download for full functionality
