@@ -2603,7 +2603,11 @@ class density_extraction:
 
     elif self.data_params["calc_type"] == 2:
       # Using the below python implementation of spherical bessel functions
-      
+
+      # `n` was never defined in this branch (two NameErrors), so calc_type = 2 has never
+      # run. From its uses -- np.unique(n), np.sum(nn == n) -- it is the list of L values.
+      n = self.data_LMK[:,0]
+
       if np.sum(self.data_LMK[:,0] % 2) == 0:
         N = (np.unique(n)/2).astype(int)
         N_max = int(np.amax(N))
@@ -2637,7 +2641,7 @@ class density_extraction:
         #for i in reversed(remove_inds):
         #  del scales[i]
 
-        def calculate_even_only(x):
+        def calculate_even_only(x, N_qbins=-1):   # N_qbins ignored; matches the C++ wrapper
           res = []
 
           tt = time.time()
@@ -2696,7 +2700,8 @@ class density_extraction:
           return np.concatenate(res, 0)
 
         self.spherical_j = calculate_even_only
-      self.calculate_coeffs = calculate_coeffs_ensemble_scipy
+      # was a bare name -> NameError
+      self.calculate_coeffs = self.calculate_coeffs_ensemble_scipy
       """
       def calc_even_only(x):
           res = []

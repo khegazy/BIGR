@@ -1,8 +1,9 @@
 # 004 — `calc_type` 1 and 2 both crash, and `calc_type` is silently ignored when multiprocessing is on
 
-**Severity** P1 (two of three documented backends unusable)
+**Severity** ~~P1~~ P3
 **Area** spherical Bessel backends
-**Status** open
+**Status** **4a and 4c fixed** 2026-08-08. 4b (`calc_type = 2`) partially repaired but still
+broken — recommend deleting the branch rather than finishing it; see below.
 
 `README.md` advertises three spherical-Bessel implementations selected by `calc_type`:
 
@@ -12,8 +13,11 @@
 2 <- Optimized Python implementation (Slower than 0 with the same errors)
 ```
 
-Only `calc_type = 0` works. This matters because option 1 is the documented fallback when the C++
-extension will not compile, and it is the only backend that is correct at low q.
+Originally only `calc_type = 0` worked. **`calc_type = 1` now works** and is a genuinely independent
+backend (it uses `scipy.special.spherical_jn` rather than the C++ recursion); the two agree to
+~1e-10, which is checked by `scripts/test_physics.py`. That independence is what confirmed the C++
+recursion after the centre-of-mass fix in [002](002-L4-coefficients-anomalously-small.md).
+`calc_type = 2` remains broken.
 
 ## 4a. `calc_type = 1` crashes with an arity mismatch — ✅ FIXED
 
@@ -62,8 +66,25 @@ In the `calc_type == 2` branch (`:2534`):
   ```
   should be `self.calculate_coeffs_ensemble_scipy`.
 
-Since option 2 is advertised as "same errors as 0 but slower", and 0 works, the cheapest honest fix
-may be to **delete the branch** and drop it from `README.md` rather than repair it.
+**Partially repaired 2026-08-08, still does not run.** Three defects were fixed — `n` is now defined
+as `self.data_LMK[:,0]` (its uses `np.unique(n)` and `np.sum(nn == n)` make that unambiguous), the
+missing `self.` on the `calculate_coeffs` assignment, and the same one-argument
+`calculate_even_only` arity mismatch that `calc_type = 1` had. It then fails deeper in, inside the
+pure-Python Bessel evaluator:
+
+```
+IndexError: too many indices for array: array is 1-dimensional, but 4 were indexed
+  density_extraction.py:2683, in calculate_even_only
+```
+
+So the branch has structural shape assumptions that do not match how `spherical_j` is called, not
+just typos.
+
+**Recommendation: delete it.** `README.md` advertises option 2 as having "the same errors as 0" while
+being slower, so it offers nothing over `calc_type = 0`, and there are now *two* working and
+mutually-agreeing backends (0 and 1) — which is all the cross-checking value option 2 could have
+provided. Repairing it would mean debugging a hand-rolled 1/x expansion of the spherical Bessel
+functions for no benefit. If it is deleted, drop it from `README.md`'s `calc_type` list too.
 
 ## 4c. `calc_type` is silently overridden by `multiprocessing`
 
