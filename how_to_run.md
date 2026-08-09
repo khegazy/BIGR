@@ -90,59 +90,66 @@ Outputs land in:
 | `output/saved_simulations/<same relative path>/results_*.h5` | cached simulated C coefficients |
 | `NO2/plots/…` | corner plot, walker trajectories, setup diagnostics |
 
-### What a 2-hour run actually produces
+### What a full run actually produces
 
-Asymmetric NO₂, PDF model, `constant_sigma = 0.163`, q ∈ [0.5, 5] Å⁻¹, ADMs at 1 K, shipped
-`ENSEMBLE_GRID_N = 19`, 32 walkers × **2400 steps (2 h wall clock)**, walkers initialised *at* the
-ground truth:
+Asymmetric NO₂, PDF model, `constant_sigma = 0.0962` (the paper's SNR-100 equivalent),
+q ∈ [0.5, 10] Å⁻¹, ADMs at 1 K, shipped `ENSEMBLE_GRID_N = 19`, 32 walkers × **3000 steps
+(4.5 h wall clock)**, walkers initialised at the ground truth:
 
 | Θ | truth | posterior median | σ^Θ | mode Θ\* | (med−truth)/σ^Θ | unit |
 |---|---|---|---|---|---|---|
-| ⟨NO⁽¹⁾⟩ | 1.35000 | 1.89457 | 0.34396 | 1.4756 | +1.58 | Å |
-| σ(NO⁽¹⁾) | 0.03000 | 0.13493 | 0.10416 | 0.0756 | +1.01 | Å |
-| ⟨NO⁽²⁾⟩ | 1.05000 | 1.44789 | 0.28488 | 1.2698 | +1.40 | Å |
-| σ(NO⁽²⁾) | 0.02000 | 0.10586 | 0.07898 | 0.0666 | +1.09 | Å |
-| ⟨∠ONO⟩ | 2.34000 | 1.87766 | 0.46421 | 1.8266 | −1.00 | rad |
-| σ(∠ONO) | 0.01000 | 0.19357 | 0.13571 | 0.1700 | +1.35 | rad |
+| ⟨NO⁽¹⁾⟩ | 1.35000 | 1.35019 | 0.00062 | 1.350000 | +0.32 | Å |
+| σ(NO⁽¹⁾) | 0.03000 | 0.02891 | 0.00306 | 0.030001 | −0.36 | Å |
+| ⟨NO⁽²⁾⟩ | 1.05000 | 1.04993 | 0.00067 | 1.050000 | −0.10 | Å |
+| σ(NO⁽²⁾) | 0.02000 | 0.01475 | 0.00728 | 0.020000 | −0.72 | Å |
+| ⟨∠ONO⟩ | 2.34000 | 2.33984 | 0.00088 | 2.340000 | −0.18 | rad |
+| σ(∠ONO) | 0.01000 | 0.02269 | 0.01427 | 0.009996 | +0.89 | rad |
 
-acceptance 0.257 · τ ≈ 134 · `has_converged = False` · 384 independent samples
+acceptance 0.474 · τ ≈ 71 · 1184 independent samples · `has_converged = False` (see below)
 
-**Read this carefully — the retrieval does not recover the truth at these settings, and that is not
-a code fault.** The evidence separates cleanly:
+**All six parameters are recovered within 1σ of the truth the data was simulated from, and the mode
+search returns Θ\* to 5–6 significant figures.** That is the correctness check for this repository:
+the forward model, the likelihood, the MCMC and the mode search all work.
 
-*The forward model and likelihood are correct.*
-- `logL(truth) = 0` exactly — the model reproduces its own simulated data.
-- **Nothing beat truth** among 2400 × 32 = 76 800 samples (best −0.126). Truth is the global maximum.
-- The spherical-Bessel C++ backend agrees with scipy to 1e-14 (`plots/check_jl*.png`).
-- Acceptance 0.257 is healthy for emcee, and the chain is stationary from step ~600 onward.
+Two caveats to read alongside the table:
 
-*But the configuration carries too little information.* At σ = 0.163 and q ≤ 5 Å⁻¹, broadening the
-ensemble costs almost nothing in likelihood while the flat prior on the widths (`[0, 0.5]`) gives the
-broad region far more volume. Posterior mass ∝ likelihood × volume, so mass collects away from the
-peak: the widths settle 5–20× high and σ(∠ONO) visibly piles up against its prior ceiling in
-`fast_run_chains.png`. See
-[issues/018](issues/018-posterior-prior-dominated-at-low-information.md).
+- **The three *mean* geometry parameters are tight; the three *widths* are not.** σ^Θ on the bond
+  lengths is 0.62–0.67 mÅ, close to the paper's Table 1 resolution (~0.5 mÅ). The widths carry
+  σ^Θ five to 140× larger and are visibly skewed in `fast_run_corner.png`. This is expected
+  physics, not a defect — the paper (Figs. 6a, 8) shows the widths are the hard-to-constrain
+  parameters and degrade first as SNR or q-range falls. Do not quote the width numbers as a
+  precision result.
+- **`has_converged` is still `False`.** The built-in criterion wants τ/steps < 0.01, i.e. ~6800
+  steps; this run reached 0.024. The chain is usable — 39 autocorrelation times, τ flat at ~71
+  across the last three checkpoints — but it is formally short of the code's own bar, so it should
+  be described as *equilibrated*, not *converged*. Raise `max_iterations` to ~7000 (~10 h) for a run
+  that satisfies the criterion outright.
 
-The mode search does not rescue it: Θ\* has `logL = −8.73`, worse than the posterior median's −0.90,
-because `weight_avg_search` computes a weighted centroid rather than maximising — see
-[issues/017](issues/017-mode-search-returns-worse-than-median.md).
+The mode search converged in **18 s** (10 iterations) and gives
+`logL(Θ\*) = −3.8×10⁻⁸` against `logL(median) = −0.19` and `logL(truth) = 0` — a factor ~5×10⁶
+better than the median. An earlier report that the mode search returned a *worse*-than-median Θ\*
+([issues/017](issues/017-mode-search-returns-worse-than-median.md)) turned out to be a downstream
+symptom of the centre-of-mass bug and does not reproduce.
 
-**The single most useful lesson:** initialising at the truth and reading off agreement after a short
-run proves nothing. A 1000-step run at these settings looked excellent (all six parameters within
-0.25σ) purely because the walkers had not yet left their starting ball. Only the longer run revealed
-the posterior's real shape.
+`logL(truth) = 0` is an identity, not evidence: the simulated data carries no noise
+(`simulate_error` sets only the variance). What *is* evidence is that nothing among 3000 × 32
+samples beat truth, and that Θ\* converged onto it from an independent search.
+
+**The single most useful lesson from getting here:** initialising at the truth and reading off
+agreement after a short run proves nothing. Early runs looked excellent at 1000 steps purely
+because the walkers had not left their starting ball — while the forward model was in fact corrupt
+(a centre-of-mass bug scaled every molecule by 1/total_mass, 46× for NO₂). Always check τ, the
+acceptance fraction, and whether the posterior width is set by the data or by the prior.
 
 Diagnostics to check on any run (`python scripts/analyse_run.py`):
 
 - **acceptance fraction** — want ~0.2–0.5.
-- **τ / steps** — must fall below 0.01 for `conv1` (`iteration > 100·τ`). A constant ~0.11 across
-  batches means emcee's estimator is saturating against chain length.
+- **τ / steps** — must fall below 0.01 for `conv1` (`iteration > 100·τ`). It should *decline*; a
+  value constant across batches means emcee's estimator is saturating against chain length and the
+  chain is drifting rather than sampling.
 - **(median − truth)/σ^Θ** — the correctness check for simulated data.
 - **width parameters at their prior bound** — if σ(·) accumulates near `sig_max = 0.5`, the answer is
-  set by the prior, not the data.
-
-To reach the paper's regime you need a properly calibrated error model (`StoN`, currently unusable —
-[issues/001](issues/001-ston-signal-to-noise-unusable.md)), q ≤ 10–20 Å⁻¹, and more walkers.
+  set by the prior, not the data ([issues/018](issues/018-posterior-prior-dominated-at-low-information.md)).
 
 Plots in `NO2/plots/NO2_symbreak/3dof/sim/PDF/1K_10TW_100fs/`: `fast_run_corner.png` and
 `fast_run_chains.png`.

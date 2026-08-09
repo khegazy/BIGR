@@ -1,14 +1,42 @@
 # 017 — `weight_avg_search` returns a Θ\* with lower likelihood than a typical posterior sample
 
-**Severity** P2 (the reported Θ\* can be worse than doing nothing)
+**Severity** ~~P2~~ → **P3 (latent)**
 **Area** mode search
-**Status** open, but **needs re-verification**: the numbers below were measured on a posterior
-produced while the centre-of-mass bug was present
-([002](002-L4-coefficients-anomalously-small.md)), so the landscape `weight_avg_search` was
-navigating was itself corrupt. The *structural* criticism stands independently of that — a
-probability-weighted centroid is not a maximum unless the posterior is symmetric and unimodal, and
-nothing checks that the returned point improves on its starting point — but the specific
-logL values should be re-measured on a valid run before quoting them.
+**Status** ❌ **NOT REPRODUCIBLE — the observed failure was caused by
+[002](002-L4-coefficients-anomalously-small.md), not by the mode search.**
+
+Re-measured 2026-08-08 on a valid posterior (3000 × 32, asymmetric NO₂, PDF model,
+`constant_sigma = 0.0962`, q ∈ [0.5, 10], τ ≈ 71). `weight_avg_search` converged in **18 s**
+(10 iterations) and returned a Θ\* that is essentially the global maximum:
+
+| point | logL | max abs deviation from truth |
+|---|---|---|
+| ground truth Θ | 0.0 (identity — the simulated data is noiseless) | — |
+| **mode search Θ\*** | **−3.8 × 10⁻⁸** | **3.7 × 10⁻⁶** |
+| posterior median | −1.9 × 10⁻¹ | 1.3 × 10⁻² |
+
+```
+Theta*  = [1.350000, 0.030001, 1.050000, 0.020000, 2.340000, 0.009996]
+truth   = [1.35,     0.03,     1.05,     0.02,     2.34,     0.01    ]
+```
+
+Θ\* now beats the posterior median by a factor ~5 × 10⁶ in likelihood, which is exactly the
+behaviour the routine is supposed to have and the opposite of what was recorded below. So the
+centroid estimator was never the defect — it was being fed a corrupt landscape.
+
+**What survives.** The *structural* criticism is still valid as a latent risk, and is why this file
+is kept rather than deleted: a probability-weighted centroid coincides with the mode only for a
+symmetric, unimodal posterior. Here it works because the corrected posterior is close to Gaussian
+near its peak. On a genuinely skewed or multimodal posterior — measured data, low SNR, or the
+prior-dominated regime of [018](018-posterior-prior-dominated-at-low-information.md) — it can still
+fail, and it would still fail *silently* without fix 1 below. Fix 1 (the result guard) is cheap and
+worth doing regardless; fixes 2–3 are unnecessary at present.
+
+The reporting half of fix 1 is already in place: `weight_avg_search` now prints Θ\* alongside the
+best sampled log-probability (added with [008](008-mode-search-no-iteration-cap.md)), so a
+worse-than-samples Θ\* is at least visible. The automatic fallback is not.
+
+## Original report (superseded — the numbers below are from a corrupt forward model)
 
 ## Symptom
 
