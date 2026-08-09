@@ -1023,7 +1023,7 @@ class density_extraction:
       if "StoN" in error_type:
         self.simulate_error_StoN(error_options)
       elif "data" in error_type or "Data" in error_type:
-        self.simulate_error_data()
+        self.simulate_error_data(error_options)
       elif "onstant_background" in error_type:
         variance_scale = error_options
         self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=float)
@@ -2743,7 +2743,7 @@ class density_extraction:
           return np.concatenate(res, 0)
         """
 
-  def simulate_error_data(self):
+  def simulate_error_data(self, error_options):
     """
     This function introduces expiremental error, based on imported data,
     into the simulation by applying a high pass filter to the data and 
@@ -2752,6 +2752,10 @@ class density_extraction:
 
         Parameters
         ----------
+        error_options : tuple
+            The (order, Wn) high-pass Butterworth parameters from
+            simulate_error = ("data", (order, Wn)). This used to be read as a bare name,
+            i.e. a local of simulate_data, and so raised NameError.
 
         Returns
         -------
@@ -2767,14 +2771,21 @@ class density_extraction:
     else:
       self.I = np.array([[self.data_params["scale"]]])
 
-    # Remove nans
+    # Remove leading NaNs by back-filling each row with its first finite value. The loop
+    # referenced an undefined name `ind` (it means the per-row cursor `inds`), used a float
+    # array as an index, and back-filled from inds[i]+1 rather than inds[i]. It also had no
+    # termination guard, so a fully-NaN row looped forever.
     filt_inp = copy(self.input_data_coeffs_)
-    i_, inds = np.arange(filt_inp.shape[0]), np.zeros(filt_inp.shape[0])
-    while np.any(np.isnan(filt_inp[i_,ind])):
-      ii = np.isnan(filt_inp[i_,ind])
+    i_ = np.arange(filt_inp.shape[0])
+    inds = np.zeros(filt_inp.shape[0], dtype=int)
+    while np.any(np.isnan(filt_inp[i_, inds])):
+      ii = np.isnan(filt_inp[i_, inds])
+      if np.any(inds[ii] >= filt_inp.shape[1] - 1):
+        raise ValueError(
+            "simulate_error_data: an imported C coefficient row is entirely NaN")
       inds[ii] += 1
     for i in range(filt_inp.shape[0]):
-      filt_inp[i,:inds[i]] = filt_inp[i,inds[i]+1]
+      filt_inp[i,:inds[i]] = filt_inp[i,inds[i]]
 
     # Plot the fourier power spectrum and filter
     b, a = sp.signal.butter(*error_options, btype="hp", analog=True)

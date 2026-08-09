@@ -41,7 +41,7 @@ covered by `scripts/test_physics.py`.
 See [006](006-measured-data-path-broken.md) for the `fit_I0` family and
 [009](009-ensemble-grid-size-parameter-ignored.md) for the `N=` keyword.
 
-## 10c. `simulate_error_data` — the `("data", …)` error model has never run
+## 10c. `simulate_error_data` — the `("data", …)` error model has never run — ✅ FIXED
 
 `:2676`. Selected by `simulate_error = ("data", (order, Wn))`, which **is advertised in
 `README.md`'s parameter list**.
@@ -51,8 +51,20 @@ See [006](006-measured-data-path-broken.md) for the `fit_I0` family and
 | `:2692`, `:2695` | `fit_I0(...)` without `self.` → `NameError` |
 | — | references `plot_folder`, which is a local of `simulate_data` (`:1010`), not in scope here |
 
-Of the four documented error models, this makes two broken (`data` here, `StoN` unusable per
-[001](001-ston-signal-to-noise-unusable.md)) and one shape-suspect (10f below).
+**Fixed 2026-08-08.** Four separate defects, stacked so that each one masked the next — which is
+consistent with the method never having executed:
+
+1. `fit_I0` called without `self.` (twice) → `NameError`.
+2. `plot_folder` referenced, but it is a local of `simulate_data` → `NameError`.
+3. The leading-NaN trim loop referenced an undefined `ind` (meaning the per-row cursor `inds`),
+   indexed with a float array, back-filled from `inds[i]+1` instead of `inds[i]`, and had no
+   termination guard, so a fully-NaN row would loop forever.
+4. `error_options` was read as a bare name although the method took no arguments; it is now a
+   parameter, passed by `simulate_data`.
+
+Verified by writing a synthetic measured-data HDF5 and running `simulate_error = ("data", (3, 0.3))`
+against it: coefficients and variances come back the right shape and all finite. **All four
+documented error models now run** (`StoN`, `constant_sigma`, `constant_background`, `data`).
 
 ## 10d. `compare_c_coeffs_scipy` — undefined locals — ✅ FIXED
 
@@ -111,11 +123,12 @@ is real.
 
 ## Remaining
 
-**10a, 10d and 10f are fixed** (2026-08-08). Still open:
+**10a, 10c, 10d and 10f are fixed** (2026-08-08). Still open:
 
-1. **10c** — repair `simulate_error_data` or remove the `("data", …)` model from `README.md`'s
-   parameter list; do not leave it advertised while it raises `NameError`.
-2. **10b**, **10e**, **10g** — delete unless there is a plan to use them.
+1. **10b** — `remove_global_offset`. The `fit_I0` calls are fixed, but it still passes an `N=`
+   keyword the generator does not accept ([009](009-ensemble-grid-size-parameter-ignored.md)).
+   Only reachable when `global_offset` is set.
+2. **10e**, **10g** — dead code; delete unless there is a plan to use them.
 
 `scripts/test_physics.py` now exists and would have caught 10a and 10d. Extending it to construct
 `density_extraction` under each documented parameter combination would catch the rest.
