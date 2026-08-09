@@ -1,8 +1,30 @@
 # 012 — `setup.sh` cannot run: syntax error, undefined variable, bad URLs
 
-**Severity** P1 (it is the documented first step for every new user)
+**Severity** ~~P1~~
 **Area** setup
-**Status** open — `how_to_run.md` §1 gives replacement commands; `setup.sh` itself is untouched
+**Status** ✅ **FIXED 2026-08-08** — `setup.sh` was rewritten and now parses, runs, and is
+idempotent. Verified: `bash -n setup.sh` passes, two consecutive runs both succeed, the `NO2/`
+symlinks resolve correctly (and do not nest on re-run), and the C++ extension rebuilds as a native
+`Mach-O arm64` library. All six defects below are addressed:
+
+- the unterminated quote is gone (12a);
+- `$FILE` is gone entirely — the `parameters_N2O_data.py` symlink it guarded pointed at a cluster
+  path that does not exist, and the N₂O measured data is not in the repo (12b);
+- the `wget` block is deleted: both modules are vendored in `external_artifacts/`, and
+  re-downloading them from the pinned upstream commits would reintroduce the numpy/scipy
+  incompatibilities that were fixed here (12c);
+- `mkdir -p` throughout, plus `output/logs` and `output/saved_simulations` which nothing created
+  before (12d);
+- the build result is reported honestly instead of printing "compiled correctly" unconditionally,
+  and points at `issues/004` if it fails (12e);
+- `set -euo pipefail` and paths derived from `${BASH_SOURCE[0]}` rather than a chain of bare `cd`s
+  (12f).
+
+It also takes an optional experiment directory (`bash setup.sh NO2`) and prints the remaining
+steps — dependency install, `scripts/stage_adms.py`, `scripts/test_physics.py`, and the run command
+— rather than leaving the user to find them.
+
+The original analysis follows.
 
 `README.md` says: *"**Setup** run the setup script `bash setup.sh`"*. It cannot work. Every problem
 below was verified by reading the file (37 lines).
