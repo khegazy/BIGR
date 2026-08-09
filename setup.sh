@@ -54,6 +54,18 @@ for f in external_artifacts/modules/fitting.py \
   fi
 done
 
+echo "INFO: Staging the axis distribution moments (ADMs)"
+# The staged tree is gitignored on purpose -- it is a pure rearrangement of ADM data
+# that IS tracked, so it is rebuilt here rather than stored twice.
+if [ -x .venv/bin/python ]; then
+  .venv/bin/python scripts/stage_adms.py
+elif command -v python3 >/dev/null; then
+  echo "        WARNING: .venv/bin/python not found, falling back to python3" >&2
+  python3 scripts/stage_adms.py
+else
+  echo "        WARNING: no interpreter found -- run scripts/stage_adms.py yourself" >&2
+fi
+
 echo "INFO: Building the C++ extension"
 # The committed .so was a Linux x86-64 binary and is no longer tracked, so this must be
 # built for the host platform. Report the outcome honestly -- the old script printed
@@ -69,14 +81,12 @@ fi
 
 echo
 echo "INFO: Setup complete. Remaining steps:"
-echo "  1. Install dependencies, e.g."
-echo "       uv pip install --python .venv/bin/python \\"
-echo "           numpy scipy matplotlib h5py emcee corner tqdm ipykernel nbconvert"
-echo "  2. Stage the ADMs into the layout get_ADMs reads:"
-echo "       .venv/bin/python scripts/stage_adms.py"
-echo "  3. Check the forward model:"
+echo "  1. Install dependencies (if you have not already):"
+echo "       uv pip install --python .venv/bin/python -r requirements.txt"
+echo "  2. Check the physics is intact -- expect '14 passed, 0 failed':"
 echo "       MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py"
-echo "  4. Run the analysis (from inside $EXPERIMENT/ -- the .so path is cwd-relative):"
+echo "  3. Run the analysis (from inside $EXPERIMENT/ -- the .so path is cwd-relative):"
 echo "       cd $EXPERIMENT && MPLBACKEND=Agg ../.venv/bin/python build_posterior.py"
+echo "                        MPLBACKEND=Agg ../.venv/bin/python mode_search.py"
 echo
 echo "  See how_to_run.md for the full procedure and the HDF5 formats."

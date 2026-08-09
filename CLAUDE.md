@@ -6,16 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two documents supersede parts of this file and should be read first:
 
-- **`how_to_run.md`** — the verified end-to-end procedure, every code change made to get it running
-  off the SLAC cluster, the HDF5 schemas (including the layout colleagues need for their own
-  measured data), and the parameter reference.
+- **`how_to_run.md`** — the user-facing guide: setup, running, plots, the parameter reference, and
+  the HDF5 schemas (including the layout colleagues need for their own measured data). Written for a
+  non-programmer; contains only what is needed to run the code.
+- **`CHANGES.md`** — the engineering record: every file recovered and every line changed to get this
+  running off the SLAC cluster. Not needed to run anything.
 - **`issues/`** — one file per known defect, with severity, exact locations, reproductions and
   suggested fixes. `issues/README.md` indexes them.
 
 Run the regression suite before and after touching anything in the forward model:
 
 ```bash
-MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py     # 11 tests, all should pass
+MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py     # 14 tests, all should pass
 ```
 
 Environment: use the `uv`-managed venv at `.venv/` (Python 3.10). It has **no pip** — install with
@@ -41,8 +43,9 @@ Environment: use the `uv`-managed venv at `.venv/` (Python 3.10). It has **no pi
 - **The simulated-data cache is keyed only on `get_fileName`**, which omits `fit_bases`,
   `sim_thetas`, `eval_times` and the ensemble grid size — delete `output/saved_simulations/` after
   changing any of them.
-- **Don't run `setup.sh`** — it has an unterminated quote and several other defects
-  (`issues/012`). `how_to_run.md` §1 has working commands.
+- **`bash setup.sh` is required, not optional.** It was rewritten (it used to be unparseable,
+  `issues/012`) and now creates the symlinks and output dirs, stages the ADMs, and builds the `.so`.
+  The `.so` and the staged ADM tree are gitignored by design, so a fresh clone cannot run without it.
 
 ## What this is
 
@@ -87,10 +90,11 @@ imported precomputed via `get_ADMs`.
 
 ## Setup
 
-**Do not run `setup.sh`** (see gotchas). Use the commands in `how_to_run.md` §1, which are verified.
-In short: `uv pip install` into `.venv`, create the `NO2/modules` and `NO2/cpp_extensions` symlinks,
+`uv pip install --python .venv/bin/python -r requirements.txt`, then `bash setup.sh` — which
+creates the `NO2/modules` and `NO2/cpp_extensions` symlinks and the output dirs, runs
+`scripts/stage_adms.py` to reshape the ADMs into the layout `get_ADMs` reads, and runs
 `make clean && make` in `cpp_extensions/lib` (the committed `.so` was Linux x86-64 and is now
-untracked), and `python scripts/stage_adms.py` to reshape the ADMs into the layout `get_ADMs` reads.
+untracked). Verified idempotent, and verified to work from a fresh clone.
 
 `NO2/parameters.py` paths are now repo-relative, derived from `__file__`. Everything needed at run
 time that is not part of BIGR is vendored in `external_artifacts/` (the two recovered modules and the
@@ -102,7 +106,7 @@ electron scattering amplitudes), so nothing outside the repo has to exist.
 cd cpp_extensions/lib && make clean && make   # rebuild the C++ extension (c_calc_extensions.so)
 ```
 
-There is a physics regression suite at `scripts/test_physics.py` (11 tests) and a post-run
+There is a physics regression suite at `scripts/test_physics.py` (14 tests) and a post-run
 diagnostic at `scripts/analyse_run.py`; there is still no linter or CI. There is no package entry
 point — everything is run as standalone scripts from the directory containing a `parameters.py`:
 
