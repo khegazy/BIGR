@@ -2851,15 +2851,17 @@ class density_extraction:
     for il in range(self.input_data_coeffs.shape[0]):
       fig, axs = plt.subplots(2, 1, sharex=True,
           gridspec_kw={"height_ratios": [3, 1]})
+      # Index by il, not 0 -- the filename varies with data_LMK[il], so
+      # hardcoding row 0 wrote the same curve to every LMK file.
       axs[0].plot(self.dom,
-          (self.input_data_coeffs_/self.I-self.experimental_noise)[0,:],
+          (self.input_data_coeffs_/self.I-self.experimental_noise)[il,:],
           '--g', label="Noise Subtracted Data")
-      axs[0].plot(self.dom, self.input_data_coeffs[0,:],
+      axs[0].plot(self.dom, self.input_data_coeffs[il,:],
           '-k', label="Simulation with Data Noise")
       axs[0].plot(self.dom,
-          (self.input_data_coeffs-self.experimental_noise)[0,:],
+          (self.input_data_coeffs-self.experimental_noise)[il,:],
           '--b', label="Simulation Without Noise")
-      axs[1].plot(self.dom, self.experimental_noise[0,:], '-k')
+      axs[1].plot(self.dom, self.experimental_noise[il,:], '-k')
       axs[0].set_xlim([self.dom[0], self.dom[-1]])
       axs[1].set_xlim([self.dom[0], self.dom[-1]])
       axs[1].set_xlabel(r'q $[\AA^{-1}]$')
@@ -2908,7 +2910,8 @@ class density_extraction:
         fig, ax = plt.subplots()
       else:
         ax = axs[il]
-      ax.plot(fft_freqs[:imax+1], np.abs(fft_out[0,:imax+1])**2, '-k')
+      # Index by il, not 0 -- see the same defect in simulate_error_data.
+      ax.plot(fft_freqs[:imax+1], np.abs(fft_out[il,:imax+1])**2, '-k')
       ax2 = ax.twinx()
       ax2.plot(plot_filter[0], np.abs(plot_filter[1]), '-b')
       ax.set_xlim([0, fft_freqs[imax]])

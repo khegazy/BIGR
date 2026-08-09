@@ -34,9 +34,10 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | [014](014-scripts-not-importable.md) | P3 | scripts | Driver scripts cannot be imported (module-scope `parse_args`, globals used in `main`) |
 | [015](015-scipy-sph-harm-pin.md) | P3 | dependencies | Pinned to scipy < 1.17 by `sph_harm`; also blocks Python > 3.10 |
 | [016](016-ensemble-quadrature-error-dominates-likelihood.md) | ~~P1~~ | likelihood | ❌ **RETRACTED** — was an artifact of the centre-of-mass bug |
-| [017](017-mode-search-returns-worse-than-median.md) | P2 | mode search | `weight_avg_search` returns a centroid, not a maximum — **numbers need re-verification** |
+| [017](017-mode-search-returns-worse-than-median.md) | ~~P2~~ P3 | mode search | ❌ **not reproducible** — Θ\* now beats the median by ~5×10⁶; only the structural caveat stands |
 | [018](018-posterior-prior-dominated-at-low-information.md) | ~~P2~~ P3 | priors | ⚠️ **revised** — measurement invalid; the guard is still worth adding |
 | [019](019-prefactor-convention-differs-from-eq21.md) | P2 | conventions | C-coefficient prefactor differs from Eq. 21 by an L-dependent normalisation |
+| [020](020-per-lmk-plots-all-identical.md) | ~~P2~~ | plotting | ✅ **fixed** — every per-LMK diagnostic plot showed the same (2,0,0) curve |
 
 ## Suggested order of work
 
@@ -46,14 +47,15 @@ that scaled every molecule by 1/total_mass — resolved or retracted five of the
 [016](016-ensemble-quadrature-error-dominates-likelihood.md) retracted,
 [001](001-ston-signal-to-noise-unusable.md) largely resolved,
 [018](018-posterior-prior-dominated-at-low-information.md) revised,
-[017](017-mode-search-returns-worse-than-median.md) needs re-verification). Several others were
-fixed directly. What remains:
+[017](017-mode-search-returns-worse-than-median.md) does not reproduce). Several others were
+fixed directly. A converged 3000-step run then recovered all six parameters within 1σ of truth and
+the mode search found Θ\* to 5–6 significant figures. What remains:
 
 1. **[019](019-prefactor-convention-differs-from-eq21.md)** — needs an authors' decision on which
    spherical-harmonic convention Eq. 21 assumes. Matters for imported measured data.
 2. **[003](003-2dof-symmetric-path-unwired.md)** — the symmetric 2dof path is still unwired.
-3. **[017](017-mode-search-returns-worse-than-median.md)** — re-measure on a valid posterior, then
-   add the guard.
+3. **[017](017-mode-search-returns-worse-than-median.md)** — downgraded to P3: the reported failure
+   was a symptom of the centre-of-mass bug. Only the silent-failure guard is still worth adding.
 4. **[005](005-multiprocessing-broken-on-spawn.md)**, **[007](007-simulated-data-cache-key-incomplete.md)**,
    **[008](008-mode-search-no-iteration-cap.md)**, **[013](013-get-adms-molecule-hardcoded.md)** —
    real but independent of the above.

@@ -230,6 +230,33 @@ def test_measured_data_roundtrip(tmp_path="/tmp/bigr_measured_data_test.h5"):
     os.remove(tmp_path)
 
 
+def test_per_lmk_plots_are_distinct(ex, tmp_dir="/tmp/bigr_plot_lmk_test"):
+    """Each per-LMK diagnostic plot must show its own row of the data.
+
+    Both plotting loops iterated over `il` to build the filename but indexed the data
+    array at a hardcoded `[0]`, so all six files were byte-identical copies of the
+    LMK=(2,0,0) curve (issue 020). Feed a distinct row per LMK and assert the rendered
+    images differ.
+    """
+    import hashlib, glob, shutil
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    n_lmk, n_q = ex.data_LMK.shape[0], ex.dom.shape[0]
+    x = np.arange(n_q)/n_q
+    rows = np.stack([np.sin(2*np.pi*(i+1)*x) for i in range(n_lmk)])
+    w, h = np.linspace(0, 0.5, 50), np.ones(50)
+    with open(os.devnull, "w") as dn, contextlib.redirect_stdout(dn):
+        ex.plot_filter(rows, (w, h), tmp_dir)
+
+    digests = [hashlib.md5(open(f, "rb").read()).hexdigest()
+               for f in sorted(glob.glob(os.path.join(tmp_dir, "*.png")))]
+    check("per-LMK filter plots differ from each other (issue 020)",
+          len(digests) == n_lmk and len(set(digests)) == n_lmk,
+          "{} distinct images out of {}".format(len(set(digests)), len(digests)))
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def main():
     print("BIGR physics regression tests\n")
     print("rotation invariants:")
@@ -246,6 +273,8 @@ def main():
     test_likelihood_peaks_at_truth()
     print("\nmeasured-data path:")
     test_measured_data_roundtrip()
+    print("\ndiagnostic plots:")
+    test_per_lmk_plots_are_distinct(ex0)
 
     n_fail = sum(1 for _, ok, _ in RESULTS if not ok)
     print("\n{} passed, {} failed".format(len(RESULTS)-n_fail, n_fail))
