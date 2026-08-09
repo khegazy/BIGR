@@ -1180,6 +1180,41 @@ class density_extraction:
     return max_rel_dev
 
 
+  def simulated_data_key(self):
+    """Hash of everything the simulated C coefficients depend on.
+
+    get_fileName encodes only molecule, experiment, density_model, the ADM
+    temperature/intensity/FWHM, fit_range and the error model. It does NOT encode
+    fit_bases, sim_thetas, dom, q_scale, the ADM eval_times, or the ensemble grid size --
+    all of which change the coefficients.
+
+    Only immutable inputs may appear here: the key is computed once before loading and
+    again before saving, so anything simulate_data mutates in between (isMS, which it sets
+    to True) would make every cache look stale. Changing any of them therefore used to
+    reload a stale cache silently and fit new-model-to-old-data. Stored as an attribute so
+    a mismatch is a cache miss rather than a wrong answer. See issues/007.
+    """
+
+    import hashlib, json
+    p = self.data_params
+    def _l(x):
+      return None if x is None else np.asarray(x).tolist()
+    payload = {
+        "fit_bases":  _l(p.get("fit_bases")),
+        "sim_thetas": _l(p.get("sim_thetas")),
+        "dom":        _l(p.get("dom")),
+        "q_scale":    float(p.get("q_scale", 1.0)),
+        "eval_times": _l(p.get("ADM_params", {}).get("eval_times")),
+        "probe_FWHM": p.get("ADM_params", {}).get("probe_FWHM"),
+        "generator":  getattr(self.ensemble_generator, "__name__", None),
+        "grid_N":     getattr(
+            sys.modules.get(getattr(self.ensemble_generator, "__module__", ""), None),
+            "ENSEMBLE_GRID_N", None),
+    }
+    return hashlib.sha1(
+        json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
   def save_simulated_data(self):
     """
     Save the simulated C coefficients and the calculated errors in an h5 
@@ -1205,6 +1240,7 @@ class density_extraction:
     print("INFO: Saving simulated data {}".format(fileName))
 
     with h5py.File(fileName, "w") as h5:
+      h5.attrs["sim_key"] = self.simulated_data_key()
       h5.create_dataset("input_data_coeffs", data=self.input_data_coeffs)
       h5.create_dataset("input_data_coeffs_var", data=self.input_data_coeffs_var)
       if self.experimental_var is not None:
@@ -1227,9 +1263,15 @@ class density_extraction:
       print("INFO: {} does not exist, now simulating data".format(fileName))
       return False
     else:
-      print("INFO: {} exist, now loading data".format(fileName))
-      
       with h5py.File(fileName, "r") as h5:
+        cached_key = h5.attrs.get("sim_key", None)
+        current_key = self.simulated_data_key()
+        if cached_key != current_key:
+          print("INFO: {} exists but was simulated with different parameters "
+                "(fit_bases / sim_thetas / dom / eval_times / ensemble grid); "
+                "re-simulating".format(fileName))
+          return False
+        print("INFO: {} exist, now loading data".format(fileName))
         self.input_data_coeffs = h5["input_data_coeffs"][:]
         self.input_data_coeffs_var = h5["input_data_coeffs_var"][:]
         if "experimental_var" in h5.keys():

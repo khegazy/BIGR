@@ -1,8 +1,18 @@
 # 007 — Simulated-data cache silently reuses stale coefficients
 
-**Severity** P2 (silently wrong results, no error)
+**Severity** ~~P2~~
 **Area** caching
-**Status** open
+**Status** ✅ **FIXED 2026-08-08.** `save_simulated_data` now writes a `sim_key` attribute — a SHA-1
+of everything the coefficients depend on (`fit_bases`, `sim_thetas`, `dom`, `q_scale`, the ADM
+`eval_times` and `probe_FWHM`, the ensemble generator's name and `ENSEMBLE_GRID_N`) — and
+`load_simulated_data` treats a mismatch as a cache miss with an explanatory message rather than
+loading stale coefficients.
+
+One subtlety worth recording: only **immutable** inputs may go in the key. The first attempt
+included `isMS`, which `simulate_data` sets to `True` after simulating, so the key computed before
+loading never matched the one computed before saving and *every* cache looked stale. Verified across
+four cases: fresh simulate, cache hit reproducing coefficients exactly, a grid-size change correctly
+missing despite an identical filename, and the overwritten entry correctly missing afterwards.
 
 ## Symptom
 

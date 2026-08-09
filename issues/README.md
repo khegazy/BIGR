@@ -24,7 +24,7 @@ Line numbers refer to the `ressurect` branch as of the commit that added this fo
 | [004](004-calc-type-1-and-2-broken.md) | ~~P1~~ P3 | backends | ⚠️ **4a/4c fixed** — `calc_type=1` works; 2 recommended for deletion |
 | [005](005-multiprocessing-broken-on-spawn.md) | P1 | performance | `multiprocessing > 1` cannot work on macOS/Windows (spawn cannot pickle a closure) |
 | [006](006-measured-data-path-broken.md) | ~~P1~~ | real data | ✅ **FIXED** — plus a second bug behind it in `fit_I0` |
-| [007](007-simulated-data-cache-key-incomplete.md) | **P2** | caching | Simulated-data cache silently reuses stale coefficients |
+| [007](007-simulated-data-cache-key-incomplete.md) | ~~P2~~ | caching | ✅ **FIXED** — content hash; a parameter change is now a cache miss |
 | [008](008-mode-search-no-iteration-cap.md) | ~~P2~~ | mode search | ✅ **FIXED** — `mode_max_iterations` cap; Θ* now reported against the best sample |
 | [009](009-ensemble-grid-size-parameter-ignored.md) | P3 | parameters | The ensemble grid size appended to `sim_thetas` never takes effect |
 | [010](010-dead-and-broken-code-paths.md) | P3 | dead code | ⚠️ **partly fixed** — 10a, 10d and 10f resolved; 10b, 10c, 10e, 10g remain |
