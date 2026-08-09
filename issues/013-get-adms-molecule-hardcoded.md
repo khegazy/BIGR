@@ -1,8 +1,16 @@
 # 013 — `get_ADMs` hardcodes `"NO2"` in its path and silently drops missing LMK
 
-**Severity** P2 (silent shape corruption; blocks reuse for other molecules)
+**Severity** ~~P2~~
 **Area** ADMs
-**Status** open
+**Status** ✅ **FIXED 2026-08-08** for 13a and 13b. The molecule sub-directory is now
+`params.get("molecule_dir", "NO2")` — backwards compatible, but no longer a literal — with a comment
+recording that the ADMs describe *orientation* and so are shared between the symmetric and stretched
+NO₂ geometries. And a requested (L,K) that does not match exactly one ADM file now raises with the
+available (L,K) listed, instead of appending an empty slice and silently returning fewer rows than
+`get_LMK`. Verified: a normal load returns matching row counts, and requesting an absent (L,K) raises.
+
+13c (positional `int(fl[-6])`/`int(fl[-5])` index parsing, which breaks for L or K ≥ 10) is still
+open.
 
 ## 13a. `"NO2"` is hardcoded in the path
 

@@ -1,8 +1,14 @@
 # 008 — `weight_avg_search` has no iteration cap or timeout
 
-**Severity** P2 (can run indefinitely; no way to bound a cluster job)
+**Severity** ~~P2~~
 **Area** mode search
-**Status** open — worked around by killing the process (progress is checkpointed)
+**Status** ✅ **FIXED 2026-08-08.** `weight_avg_search` now takes `mode_max_iterations` from the
+parameter dict (default 50, set in `NO2/parameters.py`) and breaks out with a message when reached.
+Progress is saved every iteration so the break is lossless. It also now prints Θ\* alongside the
+best sampled log-probability, so a Θ\* worse than the samples it was seeded from cannot pass
+silently — see [017](017-mode-search-returns-worse-than-median.md).
+
+The `stride` and the 1500-sample random fallback are still hardcoded; those remain open.
 
 ## Symptom
 

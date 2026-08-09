@@ -39,6 +39,7 @@ def get_parameters(run=None, molecule=None):
       "N_mode_samples"     : 25,
       "mode_std_grid"      : np.array([-1, 0, 1]),
       "mode_tolerance"     : 0.01,
+      "mode_max_iterations": 50,   # deterministic stop; see issues/008
       "plot_setup"         : True,
       "plot_progress"      : False,
       "dom"                : None,

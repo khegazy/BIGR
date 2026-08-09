@@ -561,7 +561,12 @@ def get_ADMs(params, get_LMK=None):
   else:
     temp_str = "{0:1g}".format(params["temperature"])
 
-  folders = [params["folder"], "NO2", "ADMs",
+  # "NO2" is the molecule sub-directory. It is a parameter with a backwards-compatible
+  # default rather than a literal, so this function can be reused for other molecules --
+  # note the ADMs describe orientation and are computed from the rovibronic ground-state
+  # rotational constants, so the same set serves both the symmetric and stretched NO2
+  # geometries. See issues/013.
+  folders = [params["folder"], params.get("molecule_dir", "NO2"), "ADMs",
       "temp-{}K".format(temp_str),
       "{}TW_{}fs".format(int(params["intensity"]), fwhm_str)]
   if "sub_dir" in params:
@@ -626,11 +631,22 @@ def get_ADMs(params, get_LMK=None):
   fit_bases, fit_norms = [], []
   if get_LMK is not None:
     for lmk_ in get_LMK:
-      lInds = LMK[:,0] == lmk_[0]
-      mInds = LMK[:,2] == lmk_[2]
+      # Match on L and K (the ADM files carry M = 0 only). This used to append the slice
+      # unconditionally: a requested (L,K) with no file gave an EMPTY slice, so the returned
+      # bases had fewer rows than get_LMK while LMK was returned at full length. The two are
+      # then misaligned in simulate_error_StoN, which uses ADMs both as diffraction weights
+      # and as the design matrix of inv(A^T W A) -- corrupting the error propagation rather
+      # than raising. Fail loudly instead. See issues/013.
+      sel = (LMK[:,0] == lmk_[0])*(LMK[:,2] == lmk_[2])
+      if np.sum(sel) != 1:
+        raise ValueError(
+            "get_ADMs: requested LMK {} matched {} ADM file(s) in {}; expected exactly 1. "
+            "Available (L,K): {}".format(
+                lmk_, int(np.sum(sel)), folderName,
+                sorted({(int(a), int(c)) for a, _, c in LMK})))
 
-      fit_bases.append(allBases[lInds*mInds])
-      fit_norms.append(allNorms[lInds*mInds])
+      fit_bases.append(allBases[sel])
+      fit_norms.append(allNorms[sel])
     LMK = get_LMK
   else:
     fit_bases = allBases
