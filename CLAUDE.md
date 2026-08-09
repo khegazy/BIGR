@@ -72,29 +72,29 @@ imported precomputed via `get_ADMs`.
   `log_likelihood`; `log_joint_probability` adds the prior (Eq. 18) and is what `emcee` samples.
 - P^(N)(R|Θ,C), multivariate normal (Eqs. 9–10; Θ = means **and** widths of pairwise distances/angles):
   code name `density_model: "PDF"`, generator `molecule_ensemble_generator` — discretizes each 1D normal
-  on an N-point grid (±7σ; N from the last element of `sim_thetas`, default 19) and takes the joint grid.
+  on an N-point grid and takes the joint outer product, so cost scales as N³. N is
+  `ENSEMBLE_GRID_N` in `modules/NO2.py` (19) and the half-width is `ENSEMBLE_GRID_SPAN` (±7σ). The
+  trailing element of `sim_thetas` looks like it sets N but is inert — every consumer strips it
+  (`issues/009`).
 - P^(δ)(R|Θ,C), delta function (Eqs. 7–8; Θ = distances/angle only): code name `density_model: "delta"`,
   generator `single_molecule_generator`. ~100× faster but suffers q-range-dependent systematic errors
-  (paper Fig. 8) — use as a fast first pass, trust P^(N) for widths.
+  (paper Fig. 8) — use as a fast first pass, trust P^(N) for widths. Note `simulate_data` passes
+  `sim_thetas[:-1]` to the generator, so fitting delta-to-delta-generated data needs a hand-built
+  configuration (`issues/009`).
 - Resolution σ^Θ = std of the 1D marginal projection of P(Θ|C). Θ* is found in the full correlated
   Θ-space (paper Fig. 5 discussion), not from 1D marginals — that is why `mode_search` exists instead of
   just taking per-parameter medians.
 
 ## Setup
 
-```bash
-bash setup.sh          # creates plots/, XYZ/, output/ dirs; symlinks modules/cpp_extensions into NO2/;
-                        # downloads fitting/diffraction-simulation helper modules; builds the C++ extension
-```
+**Do not run `setup.sh`** (see gotchas). Use the commands in `how_to_run.md` §1, which are verified.
+In short: `uv pip install` into `.venv`, create the `NO2/modules` and `NO2/cpp_extensions` symlinks,
+`make clean && make` in `cpp_extensions/lib` (the committed `.so` was Linux x86-64 and is now
+untracked), and `python scripts/stage_adms.py` to reshape the ADMs into the layout `get_ADMs` reads.
 
-`setup.sh` contains hardcoded paths from the original SLAC/LCLS cluster environment (e.g.
-`/cds/home/k/khegazy/...`) — treat these as examples to adapt, not values to run as-is. Likewise,
-`NO2/parameters.py` has hardcoded `output_dir`, `save_sim_data`, `scat_amps_dir`, and `ADM_params["folder"]`
-that must point at real local paths before a run will work.
-
-Required: Python ≥3.9.7, numpy, scipy, matplotlib, h5py, emcee ≥3.0.2, corner. The C++ extension needs a
-working `g++`; if compilation fails the analysis still runs via the pure-Python/Scipy Bessel-function
-path (see `calc_type` below), just much slower and effectively restricted to the delta model.
+`NO2/parameters.py` paths are now repo-relative, derived from `__file__`. Everything needed at run
+time that is not part of BIGR is vendored in `external_artifacts/` (the two recovered modules and the
+electron scattering amplitudes), so nothing outside the repo has to exist.
 
 ## Build / run
 
@@ -102,8 +102,9 @@ path (see `calc_type` below), just much slower and effectively restricted to the
 cd cpp_extensions/lib && make clean && make   # rebuild the C++ extension (c_calc_extensions.so)
 ```
 
-There is no test suite, linter, or CI in this repo. There is also no package entry point — everything is
-run as standalone scripts from the directory containing a `parameters.py`:
+There is a physics regression suite at `scripts/test_physics.py` (11 tests) and a post-run
+diagnostic at `scripts/analyse_run.py`; there is still no linter or CI. There is no package entry
+point — everything is run as standalone scripts from the directory containing a `parameters.py`:
 
 ```bash
 cd NO2
