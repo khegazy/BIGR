@@ -187,6 +187,49 @@ def test_likelihood_peaks_at_truth():
           np.all(d < 0), "worst (largest) delta = {:+.4g}".format(np.max(d)))
 
 
+def test_measured_data_roundtrip(tmp_path="/tmp/bigr_measured_data_test.h5"):
+    """Write an HDF5 in the documented measured-data layout and read it back.
+
+    This is the format colleagues must produce for their own data (how_to_run.md section 10),
+    so it is worth asserting that the documentation and the reader agree. It also exercises
+    the branch that used to call the non-existent self.fig_I0.
+    """
+    import h5py
+    ex = build(calc_type=0, grid_n=19)
+    lmk, q, coeff = ex.data_LMK, ex.dom, ex.data_coeffs
+    sigma = np.sqrt(ex.data_coeffs_var)
+
+    with h5py.File(tmp_path, "w") as h5:
+        h5["data_LMK"] = lmk.astype(int)
+        h5["fit_axis"] = q
+        for i in range(len(lmk)):
+            h5["fit_LMK_dataLMKindex-{}".format(i)] = lmk[i][None, :].astype(int)
+            h5["fit_coeffs_dataLMKindex-{}".format(i)] = coeff[i][:, None]
+            h5["fit_coeffs_cov_dataLMKindex-{}".format(i)] = (sigma[i]**2)[:, None, None]
+
+    p = get_parameters()
+    p["plot_setup"] = False
+    p["simulate_data"] = False
+    p["data_fileName"] = tmp_path
+    p["dom"] = None                  # adopt the file's fit_axis
+    p["isMS"] = True
+    p.pop("I_scale", None)           # force the fit_I0 branch (the old fig_I0 bug)
+    with open(os.devnull, "w") as dn, contextlib.redirect_stdout(dn):
+        ex2 = density_extraction(
+            p, get_molecule_init_geo, get_scattering_amplitudes,
+            log_prior=log_prior_3dof_gauss,
+            density_generator=molecule_ensemble_generator,
+            ensemble_generator=molecule_ensemble_generator, get_ADMs=get_ADMs)
+
+    check("measured-data HDF5 round-trips through the documented layout",
+          np.allclose(ex2.data_coeffs, coeff) and ex2.data_LMK.tolist() == lmk.tolist(),
+          "max |diff| {:.2e}".format(np.nanmax(np.abs(ex2.data_coeffs - coeff))))
+    check("measured data without I_scale fits the intensity (issue 006)",
+          np.shape(ex2.I) == (1, 1) and np.isfinite(np.squeeze(ex2.I)),
+          "fitted I = {:.6g}, shape {}".format(np.squeeze(ex2.I), np.shape(ex2.I)))
+    os.remove(tmp_path)
+
+
 def main():
     print("BIGR physics regression tests\n")
     print("rotation invariants:")
@@ -201,6 +244,8 @@ def main():
     test_cpp_bessel_matches_scipy(ex0)
     print("\nlikelihood:")
     test_likelihood_peaks_at_truth()
+    print("\nmeasured-data path:")
+    test_measured_data_roundtrip()
 
     n_fail = sum(1 for _, ok, _ in RESULTS if not ok)
     print("\n{} passed, {} failed".format(len(RESULTS)-n_fail, n_fail))

@@ -2246,12 +2246,21 @@ class density_extraction:
       data = self.data_coeffs
     if var is None:
       var = self.data_coeffs_var
-    I = np.nansum(c_calc/var*data, -1)\
-        /np.nansum(c_calc/var*c_calc, -1)
-    I_std = np.sqrt(1./np.sum(c_calc**2/var, -1))
-    I = I[0]
-    if len(np.array(I).shape) < 2:
-      I = np.reshape(I, (1, 1))
+
+    # Fit the scale on C200 alone, as this method's name and calculate_I0's description
+    # both say. Callers pass every LMK row, and summing only over q then leaves one I per
+    # LMK, so the reshape below raised "cannot reshape array of size 6 into shape (1,1)"
+    # on any dataset with more than one coefficient. Fall back to all rows if C200 is not
+    # among the fitted bases.
+    ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
+    if np.sum(ind2) == 1:
+      c_calc, data, var = c_calc[..., ind2, :], data[ind2], var[ind2]
+
+    I = np.nansum(c_calc/var*data, (-1, -2), keepdims=True)\
+        /np.nansum(c_calc/var*c_calc, (-1, -2), keepdims=True)
+    I_std = np.sqrt(1./np.nansum(c_calc**2/var, (-1, -2), keepdims=True))
+    I = np.reshape(I, (1, 1))
+    I_std = np.reshape(I_std, (1, 1))
 
     if return_vals:
       return I, I_std
