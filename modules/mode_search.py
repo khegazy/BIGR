@@ -261,6 +261,7 @@ def weight_avg_search(ths_dist, log_prob_dist, data_params,
 
 
     #####  Mode Search Loop  #####
+    max_loops = data_params.get("mode_max_iterations", 50)
     loop_count, same_val_count = 0, 0
     while convergence_count < 3 or np.all(prev_ths_mean==ths_mean):
         # Sort by most likely samples and drop low probability
@@ -374,6 +375,25 @@ def weight_avg_search(ths_dist, log_prob_dist, data_params,
         prev_ths_mean = copy(ths_mean)
         loop_count += 1
 
+        # Deterministic stop. The while condition needs mode_tolerance met on three
+        # consecutive iterations, and its stall test is an exact float equality
+        # (np.all(prev_ths_mean == ths_mean)) that misses "changed by 1e-15", so without a
+        # cap this can run indefinitely. Progress is saved every iteration, so breaking out
+        # is lossless.
+        if loop_count >= max_loops:
+            print("INFO: mode search reached mode_max_iterations ({}), stopping. "
+                  "convergence_count = {}".format(max_loops, convergence_count))
+            break
+
+
+    # The returned Theta* is a probability-weighted centroid, not a maximum -- it equals the
+    # mode only for a symmetric unimodal posterior. Report how it compares with the best
+    # sample seen so a worse-than-the-samples result cannot pass silently. See issues/017.
+    if len(log_prob_sampled):
+        best = np.argmax(log_prob_sampled)
+        print("INFO: mode search Theta* = {}".format(np.round(ths_mean, 6)))
+        print("      best sampled logP = {:.6g} at {}".format(
+            log_prob_sampled[best], np.round(ths_sampled[:, best], 6)))
 
     return ths_mean, ths_std, ths_sampled, log_prob_sampled, chiSq_sampled
 

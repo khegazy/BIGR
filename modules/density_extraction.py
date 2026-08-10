@@ -18,12 +18,16 @@ import matplotlib.pyplot as plt
 
 from modules.c_calc_extensions import calculate_c_cpp
 from modules.c_calc_extensions import spherical_j as spherical_j_cpp
-if os.path.exists("/cds/home/k/khegazy/simulation/diffractionSimulation/modules"):
-  sys.path.append("/cds/home/k/khegazy/simulation/diffractionSimulation/modules")
-from diffraction_simulation import diffraction_calculation
-if os.path.exists("/cds/home/k/khegazy/baseTools/modules"):
-  sys.path.append("/cds/home/k/khegazy/baseTools/modules")
-from fitting import fit_legendres_images
+# diffraction_simulation and fitting are not part of BIGR; they are vendored under
+# external_artifacts/modules (see external_artifacts/README.md). They are imported lazily
+# inside simulate_error_StoN, the only function that uses them, so that every other code
+# path -- the constant_sigma/constant_background error models, mode_search, and the
+# results/plotting paths -- runs without them.
+# realpath, not abspath: this file is normally reached through the NO2/modules symlink, so
+# abspath would resolve the repo root to NO2/ and miss external_artifacts entirely.
+sys.path.append(os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+    "external_artifacts", "modules"))
 
 
 class density_extraction:
@@ -297,8 +301,11 @@ class density_extraction:
                   Constant standard deviation : ("constant_sigma", sigma)
                       Sigma will be the standard deviation for all C coefficients
                   Constant background : ("constant_background", sigma)
-                      Will apply a constant error to the C coefficient errors such
-                      that the C200 signal to noise is given by sigma                
+                      A constant background error, i.e. sigma(q) proportional to
+                      1/atomic_scattering(q), so the error GROWS with q. Normalised so
+                      that the C200 signal to noise is 1/sigma -- note this is the
+                      reciprocal of what this docstring used to claim. Measured:
+                      sigma=0.01 gives C200 S/N = 108.                
       simulate_error_StoN(error_options):
           This function simulates the C coefficient errors by adding Poissonian
           error to the diffraction pattern and propogating it through the fitting
@@ -615,9 +622,15 @@ class density_extraction:
     # Check Jn calculations
     self.compare_spherical_bessel_scipy()
 
-    # Check C coefficient calculations
+    # Check C coefficient calculations. Build a small ensemble from sim_thetas to compare
+    # the two backends on; the scipy path is slow so keep it to a handful of geometries.
     if compare_c_coeffs:
-      self.compare_c_coeffs_scipy()
+      if self.ensemble_generator is not None and "sim_thetas" in self.data_params:
+        check_ens, check_w = self.ensemble_generator(
+            np.expand_dims(np.array(self.data_params["sim_thetas"])[:-1], 0))
+        self.compare_c_coeffs_scipy(check_ens, check_w)
+      else:
+        print("WARNING: compare_c_coeffs needs an ensemble_generator and sim_thetas")
 
 
   def make_output_dirs(self, make_plot_dirs):
@@ -945,7 +958,8 @@ class density_extraction:
             Constant standard deviation : ("constant_sigma", sigma)
                 Sigma will be the standard deviation for all C coefficients
             Constant background : ("constant_background", sigma)
-                Will apply a constant error to the C coefficient errors such
+                sigma(q) proportional to 1/atomic_scattering(q) so the error grows
+                with q; normalised so the C200 signal to noise is 1/sigma. Such
                 that the C200 signal to noise is given by sigma                
     """
 
@@ -1009,10 +1023,10 @@ class density_extraction:
       if "StoN" in error_type:
         self.simulate_error_StoN(error_options)
       elif "data" in error_type or "Data" in error_type:
-        self.simulate_error_data()
+        self.simulate_error_data(error_options)
       elif "onstant_background" in error_type:
         variance_scale = error_options
-        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=np.float)
+        self.experimental_var = np.ones(self.input_data_coeffs.shape[-1], dtype=float)
         if self.data_params["isMS"]:
           self.experimental_var /= self.atm_scat**2
         
@@ -1036,6 +1050,12 @@ class density_extraction:
         variance_scale = variance_scale**2*SN_ratio_lg2
 
         self.experimental_var *= variance_scale
+
+        # experimental_var is built 1-D over q here (the S/N normalisation above indexes it
+        # that way), but everything downstream expects [lmk, q] -- e.g. the C200 S/N check
+        # below and prune_data both index it with two axes. Broadcast before returning.
+        self.experimental_var = np.broadcast_to(
+            self.experimental_var, self.input_data_coeffs.shape).copy()
 
       elif "onstant_sigma" in error_type:
         self.experimental_var =\
@@ -1116,37 +1136,83 @@ class density_extraction:
       raise RuntimeError("ERROR: input_data_coeffs_var is still None!!!")
 
 
-  def compare_c_coeffs_scipy(self):
+  def compare_c_coeffs_scipy(self, ensemble, weights, tolerance=1e-8):
     """
-    Compare C coefficients calculated using C++ spherical bessel functions
-    data_params and those calculated using scipy spherical bessel functions.
-    Comparisons are printed out and the function exits the program after.
+    Compare the C coefficients from the C++ backend against the scipy backend for the
+    same ensemble. This is the cross-check that would have caught the centre-of-mass
+    bug in rotate_to_principalI, so it is worth running whenever either backend changes.
+
+        Parameters
+        ----------
+        ensemble : 4D np.array of type float [N,ensemble,atoms,xyz]
+            The ensemble of molecular geometries to compare on
+        weights : 2D np.array of type float [N,ensemble]
+            The weight of each geometry in the ensemble
+        tolerance : float
+            Maximum allowed relative deviation between the two backends
+
+        Returns
+        -------
+        max_rel_dev : float
+            The largest relative deviation found, per LMK
+
+    Previously this took no arguments yet referenced `ensemble`, `weights` and
+    `input_data_coeffs` as if they were locals, so it raised NameError on first use, and
+    it ended in sys.exit(0). It now takes the ensemble explicitly and returns instead of
+    exiting. Both backends weight-sum internally, so no external chunking is needed.
     """
 
-    # C coefficients using C++ calculations
-    input_data_coeffs_cpp =\
-        self.calculate_coeffs_ensemble_cpp(ensemble, weights)[0]
-    print("TEST RES CPP", input_data_coeffs[:,100:130])
+    c_cpp = self.calculate_coeffs_ensemble_cpp(copy(ensemble), weights)[0]
+    c_sci = self.calculate_coeffs_ensemble_scipy(copy(ensemble), weights)[0]
 
-    # C coefficients using scipy calculation
-    input_data_coeffs_py = np.zeros(
-        (self.data_LMK[:,0].shape[0], self.dom.shape[0]))
-    ind, ind_step = 0, int(np.ceil(100000./ensemble.shape[0]))
-    while ind < ensemble.shape[1]:
-      ind_end = np.min([ensemble.shape[1], ind + ind_step])
-      c_calc = self.calculate_coeffs_ensemble_scipy(
-          ensemble[:,ind:ind_end], weights[:,ind:ind_end])
-      input_data_coeffs_py = input_data_coeffs_py\
-          + np.sum(np.sum(c_calc\
-          *np.expand_dims(np.expand_dims(weights[:,ind:ind_end], -1), -1),
-          0), 0)
-      self.C_distributions.append(c_calc)
-      ind = ind_end
-    
-    print("TEST RES PYT", input_data_coeffs_py[:,100:130])
-    print("L1 of the difference: {}".format(
-        np.sum(np.abs(input_data_coeffs_cpp - input_data_coeffs_py))))
-    sys.exit(0)
+    print("#####  C++ vs scipy C coefficients  #####")
+    max_rel_dev = 0.
+    for i, lmk in enumerate(self.data_LMK):
+      ref = np.sqrt(np.nanmean(c_cpp[i]**2))
+      dev = np.nanmax(np.abs(c_cpp[i] - c_sci[i]))/max(ref, 1e-300)
+      max_rel_dev = max(max_rel_dev, dev)
+      print("\tLMK = {} \t rms = {:.5g} \t rel dev = {:.3g} ... {}".format(
+          lmk, ref, dev, "Passed" if dev < tolerance else "FAILED"))
+    if max_rel_dev >= tolerance:
+      print("WARNING: backends disagree by {:.3g} (tolerance {:.3g})".format(
+          max_rel_dev, tolerance))
+
+    return max_rel_dev
+
+
+  def simulated_data_key(self):
+    """Hash of everything the simulated C coefficients depend on.
+
+    get_fileName encodes only molecule, experiment, density_model, the ADM
+    temperature/intensity/FWHM, fit_range and the error model. It does NOT encode
+    fit_bases, sim_thetas, dom, q_scale, the ADM eval_times, or the ensemble grid size --
+    all of which change the coefficients.
+
+    Only immutable inputs may appear here: the key is computed once before loading and
+    again before saving, so anything simulate_data mutates in between (isMS, which it sets
+    to True) would make every cache look stale. Changing any of them therefore used to
+    reload a stale cache silently and fit new-model-to-old-data. Stored as an attribute so
+    a mismatch is a cache miss rather than a wrong answer. See issues/007.
+    """
+
+    import hashlib, json
+    p = self.data_params
+    def _l(x):
+      return None if x is None else np.asarray(x).tolist()
+    payload = {
+        "fit_bases":  _l(p.get("fit_bases")),
+        "sim_thetas": _l(p.get("sim_thetas")),
+        "dom":        _l(p.get("dom")),
+        "q_scale":    float(p.get("q_scale", 1.0)),
+        "eval_times": _l(p.get("ADM_params", {}).get("eval_times")),
+        "probe_FWHM": p.get("ADM_params", {}).get("probe_FWHM"),
+        "generator":  getattr(self.ensemble_generator, "__name__", None),
+        "grid_N":     getattr(
+            sys.modules.get(getattr(self.ensemble_generator, "__module__", ""), None),
+            "ENSEMBLE_GRID_N", None),
+    }
+    return hashlib.sha1(
+        json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
   def save_simulated_data(self):
@@ -1174,6 +1240,7 @@ class density_extraction:
     print("INFO: Saving simulated data {}".format(fileName))
 
     with h5py.File(fileName, "w") as h5:
+      h5.attrs["sim_key"] = self.simulated_data_key()
       h5.create_dataset("input_data_coeffs", data=self.input_data_coeffs)
       h5.create_dataset("input_data_coeffs_var", data=self.input_data_coeffs_var)
       if self.experimental_var is not None:
@@ -1196,9 +1263,15 @@ class density_extraction:
       print("INFO: {} does not exist, now simulating data".format(fileName))
       return False
     else:
-      print("INFO: {} exist, now loading data".format(fileName))
-      
       with h5py.File(fileName, "r") as h5:
+        cached_key = h5.attrs.get("sim_key", None)
+        current_key = self.simulated_data_key()
+        if cached_key != current_key:
+          print("INFO: {} exists but was simulated with different parameters "
+                "(fit_bases / sim_thetas / dom / eval_times / ensemble grid); "
+                "re-simulating".format(fileName))
+          return False
+        print("INFO: {} exist, now loading data".format(fileName))
         self.input_data_coeffs = h5["input_data_coeffs"][:]
         self.input_data_coeffs_var = h5["input_data_coeffs_var"][:]
         if "experimental_var" in h5.keys():
@@ -1364,9 +1437,13 @@ class density_extraction:
             The rotated molecular carteisan coordiantes
     """
 
-    # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], -2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    # Shift to the centre of mass. The division by the total mass belongs to the
+    # mass-weighted SUM, not to the coordinates: COM = sum_i(m_i r_i)/sum_i(m_i).
+    # Dividing `molecules` instead scaled every coordinate by 1/sum(mass) (a factor of
+    # 46 for NO2), shrinking all pairwise distances by the same factor. Assigning rather
+    # than using -=/ /= also avoids mutating the caller's array in place.
+    molecules = molecules\
+        - np.sum(molecules*self.mass[:,0], -2, keepdims=True)/np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor(molecules)
@@ -1391,9 +1468,10 @@ class density_extraction:
             The rotated molecular carteisan coordiantes
     """
 
-    # Center of Mass
-    molecules -= np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)
-    molecules /= np.sum(self.mass)
+    # Shift to the centre of mass -- see the note in rotate_to_principalI. The division
+    # by the total mass applies to the mass-weighted sum, not to the coordinates.
+    molecules = molecules\
+        - np.sum(molecules*self.mass[:,0], axis=-2, keepdims=True)/np.sum(self.mass)
 
     # Calculate principal moment of inertia vectors
     I_tensor = self.calc_I_tensor_ensemble(molecules)
@@ -1425,13 +1503,15 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate diffraction response
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
+    C = 1j**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
     J = sp.special.spherical_jn(self.data_Lcalc, 
         self.calc_dom*np.expand_dims(dists[:,0], axis=-1))
-    Y = sp.special.sph_harm(-1*self.data_Kcalc, self.data_Lcalc,
-        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1),
-        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1))
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar); dists[:,1] is the
+    # polar and dists[:,2] the azimuthal angle (see calculate_dists).
+    Y = sp.special.sph_harm_y(self.data_Lcalc, -1*self.data_Kcalc,
+        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=-1),
+        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=-1))
 
 
     # Sum all pair-wise contributions
@@ -1473,20 +1553,28 @@ class density_extraction:
     # Calculate diffraction response
     #ttic = time.time()
     #tic = time.time()
-    C = np.complex(0,1)**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
+    C = 1j**self.data_Lcalc*8*np.pi**2/(2*self.data_Lcalc + 1)\
         *np.sqrt(4*np.pi*(2*self.data_Lcalc + 1))
     #print("\tC time:", C.shape, time.time()-tic)
     #tic = time.time()
     inp = np.expand_dims(np.expand_dims(self.calc_dom, -1), -1)\
         *np.expand_dims(dists[:,0], axis=1)
     J = self.spherical_j(inp)
+    if J.shape[0] != self.data_LMK.shape[0]:
+      # The C++ backend returns one row per EVEN ORDER from 0 to l_max, indexed by l/2
+      # (see c_calc_extensions.spherical_j), so it must be expanded to one row per LMK
+      # before it lines up with Y and C. This mirrors the j_idx_shift = (l/2)*... indexing
+      # inside the C++ calculate_c. The scipy backend (calc_type=1) instead broadcasts
+      # against data_Lcalc and is already LMK-indexed, hence the shape test.
+      J = J[self.data_LMK[:,0]//2]
     #print("\tJ time:", inp.shape, J.shape, time.time()-tic)
     #tic = time.time()
-    Y = sp.special.sph_harm(
-        -1*np.expand_dims(np.expand_dims(self.data_Kcalc, -1), -1),
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar).
+    Y = sp.special.sph_harm_y(
         np.expand_dims(np.expand_dims(self.data_Lcalc, -1), -1),
-        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=2),
-        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=2))
+        -1*np.expand_dims(np.expand_dims(self.data_Kcalc, -1), -1),
+        np.expand_dims(np.expand_dims(dists[:,1], axis=0), axis=2),
+        np.expand_dims(np.expand_dims(dists[:,2], axis=0), axis=2))
     #print("\tY:", Y.shape, time.time()-tic)
     #print("\tCJY time:", time.time()-ttic)
 
@@ -1497,13 +1585,16 @@ class density_extraction:
         *np.expand_dims(np.expand_dims(C, -1), -1)*J*Y), axis=1)
     #print("\tsum time:", time.time()-tic)
 
-    #plt.hist(c_calc[-1,2,:], bins=25, weights=w[:,0])
-    #plt.savefig("testDist.png")
-    #plt.close()
     # Normalize by I0
     c_calc *= self.I
 
-    return c_calc.transpose((2,3,0,1))
+    # Weight-sum over the ensemble so this matches the documented [N,lmk,q] contract and
+    # the C++ backend, which does the ensemble sum inside calculate_c. Previously this
+    # returned per-ensemble-member coefficients and ignored `w` entirely, so assigning it
+    # to self.calculate_coeffs (calc_type=1) produced an array whose leading axis was the
+    # ensemble; simulate_data then indexed it as if it were the LMK axis.
+    c_calc = c_calc.transpose((2,3,0,1))                 # [N, ensemble, lmk, q]
+    return np.sum(c_calc*np.expand_dims(np.expand_dims(w, -1), -1), axis=1)
 
 
   def calculate_c_ensemble_multiProc(self, ensembles, weights):
@@ -1609,16 +1700,17 @@ class density_extraction:
     dists = self.calculate_dists(molecules)
 
     # Calculate C coefficient prefactors
-    c_prefactor = np.complex(0,1)**self.data_LMK[:,0]*8*np.pi**2\
+    c_prefactor = 1j**self.data_LMK[:,0]*8*np.pi**2\
         /(2*self.data_LMK[:,0] + 1)\
         *np.sqrt(4*np.pi*(2*self.data_LMK[:,0] + 1))
    
     # Calculate spherical harmonics
-    Ylk = sp.special.sph_harm(
-        -1*np.expand_dims(self.data_Kcalc, -1),
+    # sph_harm_y(n, m, polar, azim) replaces sph_harm(m, n, azim, polar).
+    Ylk = sp.special.sph_harm_y(
         np.expand_dims(self.data_Lcalc, -1),
-        np.expand_dims(dists[:,2], axis=0),
-        np.expand_dims(dists[:,1], axis=0))
+        -1*np.expand_dims(self.data_Kcalc, -1),
+        np.expand_dims(dists[:,1], axis=0),
+        np.expand_dims(dists[:,2], axis=0))
 
     # Calculate C coefficents via C++ implementation
     c_calc = calculate_c_cpp(
@@ -1878,6 +1970,14 @@ class density_extraction:
 
       # End Jobs that take too long
       if np.amax(tau) > 500 and self.sampler.iteration/np.amax(tau) > 15:
+        break
+
+      # Deterministic stop. Convergence requires iteration > 100*tau AND tau stable to 1%
+      # AND iteration > min_acTime_steps*tau, and the break above only fires once
+      # tau > 500, so without this the loop is effectively unbounded.
+      if self.sampler.iteration >= self.data_params.get("max_iterations", np.inf):
+        print("INFO: reached max_iterations ({}), stopping. has_converged = {}".format(
+            self.data_params["max_iterations"], self.has_converged))
         break
 
       # Start new mcmc run at the end of the previous
@@ -2140,8 +2240,10 @@ class density_extraction:
         else:
           self.I = self.data_params["I_scale"]
       else:
-        #TODO FIX THIS OPTION, fig_I0 does not exist
-        self.fig_I0(c_calc)
+        # Was self.fig_I0(c_calc), a typo for fit_I0 flagged by a TODO here. This is the
+        # branch taken for measured data with no "I_scale" parameter, i.e. the path the
+        # package exists for, so it raised AttributeError on any real dataset.
+        self.fit_I0(c_calc)
 
     # Plot initial theta coeffs vs data
     if plot and self.plot_setup:
@@ -2186,12 +2288,21 @@ class density_extraction:
       data = self.data_coeffs
     if var is None:
       var = self.data_coeffs_var
-    I = np.nansum(c_calc/var*data, -1)\
-        /np.nansum(c_calc/var*c_calc, -1)
-    I_std = np.sqrt(1./np.sum(c_calc**2/var, -1))
-    I = I[0]
-    if len(np.array(I).shape) < 2:
-      I = np.reshape(I, (1, 1))
+
+    # Fit the scale on C200 alone, as this method's name and calculate_I0's description
+    # both say. Callers pass every LMK row, and summing only over q then leaves one I per
+    # LMK, so the reshape below raised "cannot reshape array of size 6 into shape (1,1)"
+    # on any dataset with more than one coefficient. Fall back to all rows if C200 is not
+    # among the fitted bases.
+    ind2 = (self.data_LMK[:,0] == 2)*(self.data_LMK[:,2] == 0)
+    if np.sum(ind2) == 1:
+      c_calc, data, var = c_calc[..., ind2, :], data[ind2], var[ind2]
+
+    I = np.nansum(c_calc/var*data, (-1, -2), keepdims=True)\
+        /np.nansum(c_calc/var*c_calc, (-1, -2), keepdims=True)
+    I_std = np.sqrt(1./np.nansum(c_calc**2/var, (-1, -2), keepdims=True))
+    I = np.reshape(I, (1, 1))
+    I_std = np.reshape(I_std, (1, 1))
 
     if return_vals:
       return I, I_std
@@ -2220,10 +2331,10 @@ class density_extraction:
 
 
     if "scale" not in self.data_params:
-      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
+      I_init, I_std_init = self.fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     elif self.data_params["scale"] is None: 
-      I_init, I_std_init = fit_I0(c_calc, return_vals=True,
+      I_init, I_std_init = self.fit_I0(c_calc, return_vals=True,
           data=self.data_coeffs, var=self.data_coeffs_var)
     else:
       I_init, I_std_init = np.array([[self.data_params["scale"]]]), 0
@@ -2482,23 +2593,31 @@ class density_extraction:
     if "calc_type" not in self.data_params:
       self.data_params["calc_type"] = 1
 
+    # The multiprocessing helper only has a C++ implementation, so it forces that branch.
+    # Say so rather than silently ignoring calc_type -- this is the exact combination
+    # someone tries when the C++ extension is the suspect.
+    if self.do_multiprocessing and self.data_params["calc_type"] != 0:
+      raise ValueError(
+          "multiprocessing > 1 requires calc_type = 0 (the only backend with a "
+          "multiprocessing path); got calc_type = {}. Set multiprocessing = 0 to use "
+          "calc_type = {}.".format(
+              self.data_params["calc_type"], self.data_params["calc_type"]))
+
     if self.data_params["calc_type"] == 0 or self.do_multiprocessing:
       # Use the C++ implementation of spherical bessel functions
       
       if np.sum(self.data_LMK[:,0] % 2) == 0:
-        ind = 0
+        # spherical_j_cpp returns one row per EVEN ORDER from 0 to max(lmk), indexed by
+        # l/2, regardless of which orders appear in lmk (see its docstring). It therefore
+        # needs no padding: the previous version inserted the missing even orders into
+        # `lmk` and built a `keep_inds` mask to remove them again, but that mask had
+        # len(lmk) entries while the returned array has max(lmk)/2+1 rows, so applying it
+        # would have raised. That is why `#[keep_inds]` was commented out. Only max(lmk)
+        # matters here, so pass the L values through unchanged.
         lmk = self.data_LMK[:,0]
-        keep_inds = np.ones(len(lmk)).astype(bool) 
-        for i in np.arange(np.amax(lmk)//2+1):
-          if i*2 not in lmk:
-            for j in np.arange(len(lmk)):
-              if i*2 < lmk[j]:
-                lmk = np.insert(lmk, j, i*2, axis=0)
-                keep_inds = np.insert(keep_inds, j, False, axis=0)
-                break
-     
+
         def calculate_even_only(x, N_qbins=-1):
-          return spherical_j_cpp(x, lmk)#[keep_inds]
+          return spherical_j_cpp(x, lmk)
 
         self.spherical_j = calculate_even_only
       if self.do_multiprocessing:
@@ -2508,8 +2627,17 @@ class density_extraction:
 
     elif self.data_params["calc_type"] == 1:
       # Using scipy implementation of spherical bessel functions
-      def numpy_jn(x):
-        return sp.special.spherical_jn(self.data_Lcalc, x) 
+      # Return one row per EVEN ORDER from 0 to l_max, indexed by l/2 -- the same
+      # convention as the C++ wrapper (see c_calc_extensions.spherical_j). Keeping both
+      # backends on one convention means compare_spherical_bessel_scipy's n//2 indexing
+      # and calculate_coeffs_ensemble_scipy's expansion work for either.
+      # N_qbins is accepted and ignored to match calculate_even_only(x, N_qbins=-1);
+      # compare_spherical_bessel_scipy passes two arguments and used to raise TypeError.
+      even_orders = np.arange(0, int(np.amax(self.data_LMK[:,0])) + 1, 2)
+
+      def numpy_jn(x, N_qbins=-1):
+        n = np.reshape(even_orders, [-1] + [1]*np.ndim(x))
+        return sp.special.spherical_jn(n, np.expand_dims(x, 0))
 
       self.spherical_j = numpy_jn
       self.calculate_coeffs = self.calculate_coeffs_ensemble_scipy
@@ -2517,7 +2645,11 @@ class density_extraction:
 
     elif self.data_params["calc_type"] == 2:
       # Using the below python implementation of spherical bessel functions
-      
+
+      # `n` was never defined in this branch (two NameErrors), so calc_type = 2 has never
+      # run. From its uses -- np.unique(n), np.sum(nn == n) -- it is the list of L values.
+      n = self.data_LMK[:,0]
+
       if np.sum(self.data_LMK[:,0] % 2) == 0:
         N = (np.unique(n)/2).astype(int)
         N_max = int(np.amax(N))
@@ -2551,7 +2683,7 @@ class density_extraction:
         #for i in reversed(remove_inds):
         #  del scales[i]
 
-        def calculate_even_only(x):
+        def calculate_even_only(x, N_qbins=-1):   # N_qbins ignored; matches the C++ wrapper
           res = []
 
           tt = time.time()
@@ -2610,7 +2742,8 @@ class density_extraction:
           return np.concatenate(res, 0)
 
         self.spherical_j = calculate_even_only
-      self.calculate_coeffs = calculate_coeffs_ensemble_scipy
+      # was a bare name -> NameError
+      self.calculate_coeffs = self.calculate_coeffs_ensemble_scipy
       """
       def calc_even_only(x):
           res = []
@@ -2657,7 +2790,7 @@ class density_extraction:
           return np.concatenate(res, 0)
         """
 
-  def simulate_error_data(self):
+  def simulate_error_data(self, error_options):
     """
     This function introduces expiremental error, based on imported data,
     into the simulation by applying a high pass filter to the data and 
@@ -2666,6 +2799,10 @@ class density_extraction:
 
         Parameters
         ----------
+        error_options : tuple
+            The (order, Wn) high-pass Butterworth parameters from
+            simulate_error = ("data", (order, Wn)). This used to be read as a bare name,
+            i.e. a local of simulate_data, and so raised NameError.
 
         Returns
         -------
@@ -2673,26 +2810,35 @@ class density_extraction:
 
     # Check/calculate scaling between data and C simulation
     if "scale" not in self.data_params:
-      fit_I0(self.input_data_coeffs,
+      self.fit_I0(self.input_data_coeffs,
           data=self.input_data_coeffs_, var=self.input_data_coeffs_var_)
     elif self.data_params["scale"] is None: 
-      fit_I0(self.input_data_coeffs,
+      self.fit_I0(self.input_data_coeffs,
           data=self.input_data_coeffs_, var=self.input_data_coeffs_var_)
     else:
       self.I = np.array([[self.data_params["scale"]]])
 
-    # Remove nans
+    # Remove leading NaNs by back-filling each row with its first finite value. The loop
+    # referenced an undefined name `ind` (it means the per-row cursor `inds`), used a float
+    # array as an index, and back-filled from inds[i]+1 rather than inds[i]. It also had no
+    # termination guard, so a fully-NaN row looped forever.
     filt_inp = copy(self.input_data_coeffs_)
-    i_, inds = np.arange(filt_inp.shape[0]), np.zeros(filt_inp.shape[0])
-    while np.any(np.isnan(filt_inp[i_,ind])):
-      ii = np.isnan(filt_inp[i_,ind])
+    i_ = np.arange(filt_inp.shape[0])
+    inds = np.zeros(filt_inp.shape[0], dtype=int)
+    while np.any(np.isnan(filt_inp[i_, inds])):
+      ii = np.isnan(filt_inp[i_, inds])
+      if np.any(inds[ii] >= filt_inp.shape[1] - 1):
+        raise ValueError(
+            "simulate_error_data: an imported C coefficient row is entirely NaN")
       inds[ii] += 1
     for i in range(filt_inp.shape[0]):
-      filt_inp[i,:inds[i]] = filt_inp[i,inds[i]+1]
+      filt_inp[i,:inds[i]] = filt_inp[i,inds[i]]
 
     # Plot the fourier power spectrum and filter
     b, a = sp.signal.butter(*error_options, btype="hp", analog=True)
     w, h = sp.signal.freqs(b, a)
+    plot_folder = os.path.join("plots", self.data_params["molecule"])
+    os.makedirs(plot_folder, exist_ok=True)
     self.plot_filter(filt_inp, (w, h), plot_folder)
 
     # Filter the data to get the noise
@@ -2705,15 +2851,17 @@ class density_extraction:
     for il in range(self.input_data_coeffs.shape[0]):
       fig, axs = plt.subplots(2, 1, sharex=True,
           gridspec_kw={"height_ratios": [3, 1]})
+      # Index by il, not 0 -- the filename varies with data_LMK[il], so
+      # hardcoding row 0 wrote the same curve to every LMK file.
       axs[0].plot(self.dom,
-          (self.input_data_coeffs_/self.I-self.experimental_noise)[0,:],
+          (self.input_data_coeffs_/self.I-self.experimental_noise)[il,:],
           '--g', label="Noise Subtracted Data")
-      axs[0].plot(self.dom, self.input_data_coeffs[0,:],
+      axs[0].plot(self.dom, self.input_data_coeffs[il,:],
           '-k', label="Simulation with Data Noise")
       axs[0].plot(self.dom,
-          (self.input_data_coeffs-self.experimental_noise)[0,:],
+          (self.input_data_coeffs-self.experimental_noise)[il,:],
           '--b', label="Simulation Without Noise")
-      axs[1].plot(self.dom, self.experimental_noise[0,:], '-k')
+      axs[1].plot(self.dom, self.experimental_noise[il,:], '-k')
       axs[0].set_xlim([self.dom[0], self.dom[-1]])
       axs[1].set_xlim([self.dom[0], self.dom[-1]])
       axs[1].set_xlabel(r'q $[\AA^{-1}]$')
@@ -2762,7 +2910,8 @@ class density_extraction:
         fig, ax = plt.subplots()
       else:
         ax = axs[il]
-      ax.plot(fft_freqs[:imax+1], np.abs(fft_out[0,:imax+1])**2, '-k')
+      # Index by il, not 0 -- see the same defect in simulate_error_data.
+      ax.plot(fft_freqs[:imax+1], np.abs(fft_out[il,:imax+1])**2, '-k')
       ax2 = ax.twinx()
       ax2.plot(plot_filter[0], np.abs(plot_filter[1]), '-b')
       ax.set_xlim([0, fft_freqs[imax]])
@@ -2795,6 +2944,11 @@ class density_extraction:
         -------
     """
 
+    # Imported here rather than at module scope so that every code path which does not
+    # simulate Poissonian error runs without these vendored modules present.
+    from diffraction_simulation import diffraction_calculation
+    from fitting import fit_legendres_images
+
     s2n_scale, s2n_range = error_options
 
     # Get ADMs
@@ -2812,7 +2966,7 @@ class density_extraction:
       q_wHole = self.data_params["dom"]
     else:
       dq = self.data_params["dom"][1] - self.data_params["dom"][0]
-      N_hole = np.int(np.round(self.data_params["dom"][0]/dq))
+      N_hole = int(np.round(self.data_params["dom"][0]/dq))
       N_hole += (N_hole+1)%2
       dqq = self.data_params["dom"][0]/N_hole
       q_wHole = np.concatenate(
@@ -2848,7 +3002,7 @@ class density_extraction:
     # Simulate Diffraction
     if len(sim_LMK_weights.shape) == 2 and sim_LMK_weights.shape[0] > 10:
       mol_diffraction = []
-      for i in range(np.int(np.ceil(sim_LMK_weights.shape[0]/10.))):
+      for i in range(int(np.ceil(sim_LMK_weights.shape[0]/10.))):
         atm_diffraction, mol = diffraction_calculation(
             sim_LMK, sim_LMK_weights[i*10:(i+1)*10],
             np.array([[self.atom_positions]]), [self.atom_types],

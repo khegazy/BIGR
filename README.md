@@ -4,14 +4,55 @@ Molecular Geometry Retrieval Using Bayesian Inferencing
 This package approximates the probability distribution |Psi(r,t)|^2 of time dependent molecular geometries measured by ultrafast diffraction experiments. We apply Bayesian Inferencing and ensemble anisotropy (althought not required) to access the molecular frame via a system of integral equations. This package sets up those molecular frame dependent equations and solves for the given posterior P(r,t|Theta) which approximates |Psi(r,t)|^2. Using the Metropolis-Hastings algorithm, implemented by the [emcee](https://emcee.readthedocs.io/en/stable/) package, we solve retrieve the marginalized posterior P(Theta,t). Using the `mode_search.py` method one can find the optimal Theta parameters that produces a posterior that best describes the observed data (C coefficients). This method is fully described in this [publication](https://arxiv.org/abs/2207.09600).
 
 
+> ## Start here
+>
+> **[`how_to_run.md`](how_to_run.md)** is the step-by-step guide: setup, running, plots, changing
+> settings, and the HDF5 layout you need to analyse **your own measured data**. It assumes no
+> programming experience beyond copy-pasting terminal commands.
+>
+> **Quick start**, from a fresh clone:
+>
+> ```bash
+> uv venv --python 3.10 .venv
+> uv pip install --python .venv/bin/python -r requirements.txt
+> bash setup.sh                                              # REQUIRED -- see below
+> MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py    # expect 14 passed
+> cd NO2 && MPLBACKEND=Agg ../.venv/bin/python build_posterior.py
+> ```
+>
+> **`bash setup.sh` is not optional.** Two things needed at run time are deliberately not stored in
+> git, because both are machine-specific or derived, and it creates them: the compiled C++ extension
+> (the version that used to be committed was a Linux binary that could not load on macOS) and the
+> staged ADM folder (a pure rearrangement of data that *is* tracked). Everything else you need is in
+> the repository.
+>
+> Known defects are catalogued one-per-file in [`issues/`](issues/) — start at
+> [`issues/README.md`](issues/README.md). What changed in each release, and the full record of the
+> changes that were needed to revive this repository, are in [`CHANGELOG.md`](CHANGELOG.md).
+>
+> Before and after changing anything in the forward model, run the physics regression suite:
+> `MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py` (14 tests).
+
 Setup and Prerequisites
 -----------------------
 
 **Setup**</br>
-run the setup script `bash setup.sh`
+```bash
+bash setup.sh          # or: bash setup.sh <experiment_dir>   (default: NO2)
+```
+This creates the output folders and symlinks, stages the ADMs, and compiles the C++ extension for
+your platform. It is idempotent. (Earlier versions of this README said not to run it, because it
+could not be parsed; it has been rewritten — see [`CHANGELOG.md`](CHANGELOG.md).)
 
 **Prerequisites**</br>
-Below is the minimum required version of Python, Python packages, scattering amplitudes, and simulation scripts:
+Install with `uv pip install --python .venv/bin/python -r requirements.txt` (or plain
+`pip install -r requirements.txt`). [`requirements.txt`](requirements.txt) pins the combination the
+analysis was verified with: Python 3.10.20, numpy 2.2.6, scipy 1.15.3, matplotlib 3.10.9,
+h5py 3.16.0, emcee 3.1.6, corner 2.3.0.
+
+The original minimum versions are kept below for reference, but the code no longer runs under the
+old numpy idioms it used to depend on (`np.complex`, `np.int`, `np.float` were all removed from
+numpy) — see [`CHANGELOG.md`](CHANGELOG.md).
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
 - `Scipy >= 1.6.2`
@@ -21,6 +62,10 @@ Below is the minimum required version of Python, Python packages, scattering amp
 - `ctypes >= 1.1.0`
 - `emcee >= 3.0.2`
 - `corner >= 2.2.1`
+
+The two "optional" modules below are **not optional** for the `StoN` error model, and are no longer
+downloads: they are vendored in [`external_artifacts/`](external_artifacts/) together with the
+electron scattering amplitudes, so nothing outside this repository has to exist.
 
 
 Optional modules and scripts to download for full functionality

@@ -1,4 +1,6 @@
 import sys, os
+import argparse
+import time
 import numpy as np
 import numpy.random as rnd
 from copy import copy
@@ -130,7 +132,8 @@ if __name__ == "__main__":
     #sigmas = np.insert(1./(10**np.arange(11)), 0, 0.163)
     ston = [100]
     #ston = [25, 50, 200, 400]
-    lmk_arr = [[100, 100]]
+    # Must stay identical to build_posterior.py's list -- see the comment there.
+    lmk_arr = [[30, 100]]
     #lmk_arr = [[25, 12.5], [25, 25], [25, 50], [25, 100], [12.5, 100], [50, 100]]
     options = []
 

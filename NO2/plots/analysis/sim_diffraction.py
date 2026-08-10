@@ -1,3 +1,23 @@
+"""Regenerate simulated diffraction images for the analysis-step figures.
+
+    NOT FUNCTIONAL IN THIS REPOSITORY, AND NOT NEEDED TO RUN BIGR.
+
+This script is not on the build_posterior.py -> mode_search.py path; nothing in the
+retrieval imports it. It shells out (line ~30) to an external diffraction simulator at
+`~/simulation/diffractionSimulation/diffraction.py` and to ADMs under `/cds/group/ued/...`
+on the SLAC cluster. Neither path exists outside the original environment, so the
+subprocess fails and the script exits.
+
+To use it you would need to: install the `diffractionSimulation` package (see
+NO2_properties_simulation/diffraction/README.md), replace the `~/simulation/...` path
+below, and repoint --basis_folder at the in-repo ADMs, e.g.
+    ../../../NO2_properties_simulation/axis_dist/A/temp-1K
+Note the hardcoded temp-100K does not exist in this repository's ADM set -- only
+1, 10, 20, 30 and 300 K -- so it cannot be a straight substitution.
+
+See how_to_run.md for the analysis that does work.
+"""
+
 import sys, os, glob, time
 import h5py
 import subprocess

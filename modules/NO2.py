@@ -15,6 +15,34 @@ from matplotlib import cm, lines
 from modules.density_extraction import density_extraction
 
 
+# Number of grid points per structural degree of freedom used by
+# molecule_ensemble_generator to discretise the normal distribution P^(N)(R|Theta,C).
+# The ensemble is the full outer product, so the cost of every likelihood evaluation
+# scales as N**3 -- this is by far the biggest lever on MCMC wall-clock time:
+#
+#   N = 19 (the original value)  -> 6859 geometries/walker, ~2.9 s per MCMC step
+#   N = 11                       -> 1331 geometries/walker, ~0.6 s per MCMC step
+#   N =  7                       ->  343 geometries/walker, fastest, coarsest
+#
+# The grid spans +/-7 sigma, so N sets how finely the Gaussian is sampled (N=11 gives a
+# spacing of 1.4 sigma). Simulated data and the fitted model both go through this
+# function, so the retrieval stays self-consistent at any N; a small N mainly degrades
+# how faithfully the discrete ensemble represents a true normal distribution.
+#
+# Changing this invalidates the save_sim_data cache (N is not part of the file name):
+# delete output/saved_simulations/ afterwards.
+ENSEMBLE_GRID_N = 19
+
+# Half-width of the ensemble grid in units of sigma. Do NOT reduce this to buy a finer
+# spacing at fixed N: it looks like the tails beyond ~3 sigma carry negligible weight,
+# but the integrand oscillates (j_l(q*dR) with q*sigma of order radians), so truncating
+# them costs more accuracy than the finer spacing gains. Measured on the exact integral
+# E[exp(i k x)] = exp(-k^2 s^2/2) at k*s = 3 rad, N = 19:
+#   span 7 -> relative error 3e-4      span 3 -> relative error 7e-2   (200x worse)
+# 7 is the value the original code used and it is the right choice. See issues/016.
+ENSEMBLE_GRID_SPAN = 7
+
+
 ########################
 #####  Log Priors  #####
 ########################
@@ -369,8 +397,8 @@ def molecule_ensemble_generator(thetas):
     N = int(thetas[0,6])
     thetas = thetas[:,:-1]
   else:
-    N = 19
-  std_ = 7
+    N = ENSEMBLE_GRID_N
+  std_ = ENSEMBLE_GRID_SPAN
 
   d1_distribution_vals  = np.linspace(d1-std_1*std_, d1+std_1*std_, N)
   d2_distribution_vals  = np.linspace(d2-std_2*std_, d2+std_2*std_, N)
@@ -533,7 +561,12 @@ def get_ADMs(params, get_LMK=None):
   else:
     temp_str = "{0:1g}".format(params["temperature"])
 
-  folders = [params["folder"], "NO2", "ADMs",
+  # "NO2" is the molecule sub-directory. It is a parameter with a backwards-compatible
+  # default rather than a literal, so this function can be reused for other molecules --
+  # note the ADMs describe orientation and are computed from the rovibronic ground-state
+  # rotational constants, so the same set serves both the symmetric and stretched NO2
+  # geometries. See issues/013.
+  folders = [params["folder"], params.get("molecule_dir", "NO2"), "ADMs",
       "temp-{}K".format(temp_str),
       "{}TW_{}fs".format(int(params["intensity"]), fwhm_str)]
   if "sub_dir" in params:
@@ -598,11 +631,22 @@ def get_ADMs(params, get_LMK=None):
   fit_bases, fit_norms = [], []
   if get_LMK is not None:
     for lmk_ in get_LMK:
-      lInds = LMK[:,0] == lmk_[0]
-      mInds = LMK[:,2] == lmk_[2]
+      # Match on L and K (the ADM files carry M = 0 only). This used to append the slice
+      # unconditionally: a requested (L,K) with no file gave an EMPTY slice, so the returned
+      # bases had fewer rows than get_LMK while LMK was returned at full length. The two are
+      # then misaligned in simulate_error_StoN, which uses ADMs both as diffraction weights
+      # and as the design matrix of inv(A^T W A) -- corrupting the error propagation rather
+      # than raising. Fail loudly instead. See issues/013.
+      sel = (LMK[:,0] == lmk_[0])*(LMK[:,2] == lmk_[2])
+      if np.sum(sel) != 1:
+        raise ValueError(
+            "get_ADMs: requested LMK {} matched {} ADM file(s) in {}; expected exactly 1. "
+            "Available (L,K): {}".format(
+                lmk_, int(np.sum(sel)), folderName,
+                sorted({(int(a), int(c)) for a, _, c in LMK})))
 
-      fit_bases.append(allBases[lInds*mInds])
-      fit_norms.append(allNorms[lInds*mInds])
+      fit_bases.append(allBases[sel])
+      fit_norms.append(allNorms[sel])
     LMK = get_LMK
   else:
     fit_bases = allBases

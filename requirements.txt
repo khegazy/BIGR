@@ -1,0 +1,34 @@
+# BIGR run-time dependencies.
+#
+# Install with (uv-created venvs have no pip inside them):
+#     uv pip install --python .venv/bin/python -r requirements.txt
+# or, in a conda / plain-venv environment:
+#     pip install -r requirements.txt
+#
+# These are the versions the analysis was verified with -- see how_to_run.md.
+# They are much newer than the floors quoted in README.md; the API changes that
+# required are recorded in CHANGELOG.md.
+
+# --- core numerics -------------------------------------------------------
+numpy==2.2.6
+scipy==1.15.3          # see the pin note below
+matplotlib==3.10.9
+h5py==3.16.0
+
+# --- MCMC and plotting ---------------------------------------------------
+emcee==3.1.6
+corner==2.3.0
+tqdm==4.70.0           # required: run_mcmc calls run_mcmc(..., progress=True)
+
+# --- notebook (only needed to produce the figures) -----------------------
+ipykernel==7.3.0
+nbconvert==7.17.1
+jupyterlab             # only if you want to open analyze_results.ipynb interactively
+
+# Why scipy is pinned
+# ------------------
+# scipy 1.15.3 is the last release supporting Python 3.10, and the only window in
+# which BOTH the old `sph_harm` and its replacement `sph_harm_y` exist -- which is
+# what allowed the spherical-harmonic migration to be checked numerically rather
+# than guessed. The code now calls `sph_harm_y`, so newer scipy should work, but
+# it has not been verified. See issues/015-scipy-sph-harm-pin.md.
