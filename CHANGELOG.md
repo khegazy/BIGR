@@ -1,13 +1,124 @@
-# What was changed to make this run
+# Changelog
 
-This is the engineering record: every file that had to be recovered and every line of code that had
-to change to get the NO₂ analysis running off the original SLAC/LCLS cluster.
+All notable changes to BIGR are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**You do not need to read this to run the code** — see [`how_to_run.md`](how_to_run.md) for that.
-Keep this for reviewing the changes, for porting them to another branch, or for understanding why a
-line looks the way it does.
+To run the code, read [`how_to_run.md`](how_to_run.md) — you do not need this file. Read this when
+you want to know what changed, or why a line looks the way it does. Open defects are catalogued in
+[`issues/`](issues/).
+
+## [Unreleased]
+
+Revival release: as committed, `v0.0.1` could not run anywhere except the SLAC/LCLS cluster it was
+written on. It now runs from a fresh clone on macOS/Linux, and the retrieval is verified against
+known truth.
+
+**The headline is a physics bug.** A centre-of-mass error scaled every molecule by 1/total_mass —
+46× for NO₂ — corrupting every C coefficient in every calculation. It also explains a string of
+symptoms previously recorded as separate defects. Any quantitative result produced with `v0.0.1`
+should be recomputed.
+
+### Fixed
+
+- **Centre-of-mass bug in `rotate_to_principalI` / `rotate_to_principalI_ensemble`.** The code
+  computed `r/M − Σmⱼrⱼ/M` instead of `r − Σmⱼrⱼ/M`, dividing every coordinate by the total mass, so
+  all pairwise distances came out 46× too small for NO₂ (0.029 Å instead of 1.35 Å). This corrupted
+  every C coefficient and pushed the C++ spherical-Bessel recursion into its numerically unstable
+  regime. Fixing it resolved, in one change: the anomalously small L = 4 coefficients (now
+  |C₄₀₀| = 2.95 > |C₆₀₀| = 1.94, as the physics requires), the apparent non-convergence of the
+  ensemble quadrature, the unusably low `StoN` signal-to-noise, and every failed retrieval.
+- **Measured-data import.** Called a non-existent `self.fig_I0`; behind that, `fit_I0` reshaped six
+  values into a `(1,1)` array. Both fixed, and covered by a round-trip test.
+- **`("data", …)` error model.** Had never run: an undefined name in the NaN-trimming loop, a float
+  used as an array index, an off-by-one back-fill, and no termination guard on an all-NaN row.
+- **Per-LMK diagnostic plots were all identical.** Both plotting loops built the filename from the
+  loop variable but indexed the data at a hardcoded `[0]`, so all six files were byte-identical
+  copies of the (2,0,0) curve. Diagnostic only — the noise added to the coefficients was always
+  correct — but it made per-channel defects invisible.
+- **`setup.sh` could not run at all**: an unterminated quote made it unparseable, two symlinks were
+  guarded by an undefined variable, one download host was a typo, both download URLs served HTML
+  rather than Python, and `mkdir` without `-p` failed on re-run. Rewritten and verified idempotent.
+- **Simulated-data cache silently served stale coefficients.** The cache key omitted `fit_bases`,
+  `sim_thetas`, `eval_times` and the ensemble grid size. Now keyed on a content hash, so a
+  parameter change is a cache miss.
+- **Mode search could run forever** — no iteration cap, and the stall test compared floats for exact
+  equality. Added `mode_max_iterations` (default 50); progress is saved every iteration.
+- **`get_ADMs` silently returned fewer rows than requested** when an ADM file was missing, which
+  would misalign every ADM with the wrong LMK in the error propagation. Now raises.
+- **`calc_type = 1` (scipy backend) crashed** on an argument-count mismatch.
+- **Broadcasting bug in `calculate_coeffs_ensemble_scipy`**, and a `constant_background` variance
+  that was 1-D where the rest of the code expected 2-D.
+
+### Added
+
+- **`how_to_run.md`** — a task-ordered guide written for occasional programmers: setup, run, plot,
+  verify, then reference material. States expected output at every step.
+- **`issues/`** — 20 defect reports, one per file, each with symptom, location, mechanism,
+  reproduction and suggested fix, indexed by severity in `issues/README.md`.
+- **`scripts/test_physics.py`** — 14 physics regression tests covering the frame rotation, agreement
+  between all three calculation backends, coefficient ordering, the spherical harmonics, the C++
+  Bessel evaluation, the likelihood, the measured-data round-trip, and the plotting fix.
+- **`scripts/stage_adms.py`** to arrange the ADMs into the layout the reader expects, and
+  **`scripts/analyse_run.py`** to report convergence and retrieved-vs-truth after a run.
+- **`requirements.txt`** pinning the verified dependency set.
+- **`external_artifacts/`** — the two run-time modules and the electron scattering amplitudes that
+  ship with neither the repository nor PyPI, recovered from the cluster archive and vendored with
+  provenance, so the repository is self-contained.
+- **`max_iterations`** so a run stops deterministically instead of depending on a convergence test
+  that needed ~120 000 steps to pass.
+- A **"Fast run" section** in `analyze_results.ipynb` that plots a completed run without re-running
+  the simulation.
+
+### Changed
+
+- **numpy and scipy API migrations**: `np.complex`/`np.int`/`np.float` → builtins, and
+  `sph_harm` → `sph_harm_y`. The harmonic migration swaps *both* degree/order and the angle order,
+  so it was verified numerically (agreement 1.1e-15 against analytic closed forms) rather than
+  assumed — the naive unswapped call differs by 0.243.
+- **All paths are repo-relative**, derived from `__file__`. The four hardcoded `/cds/` and `/reg/`
+  cluster paths are gone.
+- **The ensemble grid is named**: `ENSEMBLE_GRID_N` and `ENSEMBLE_GRID_SPAN` replace magic numbers.
+- `README.md` and `CLAUDE.md` rewritten around a verified quick-start.
+
+### Removed
+
+- The committed `c_calc_extensions.so` — it was a Linux x86-64 binary that could not load on macOS.
+  It is now built by `setup.sh` and gitignored.
+- A broken macOS shortcut blob committed as a regular file, pointing at an external USB drive, that
+  had never resolved for anyone cloning the repository.
+
+### Verified
+
+A 3000-step run (32 walkers, asymmetric NO₂, σ = 0.0962 ≙ the paper's SNR 100, q ∈ [0.5, 10] Å⁻¹)
+recovers **all six parameters within 1σ of the truth the data was simulated from**, and the mode
+search finds Θ\* to 5–6 significant figures. Bond-length resolution is 0.62–0.67 mÅ against the
+paper's Table 1 value of ~0.5 mÅ. `tau` levels off near 71 rather than tracking chain length, which
+it did while the centre-of-mass bug was present.
+
+Two honest caveats: the *width* parameters are far more loosely determined than the means and are
+skewed, as the paper's Figs. 6a and 8 predict; and `has_converged` still reports `False` because the
+built-in criterion wants ~6800 steps, so the chain is *equilibrated* rather than formally converged.
+
+### Known issues
+
+Catalogued in [`issues/`](issues/). The one that can silently change published numbers is
+[019](issues/019-prefactor-convention-differs-from-eq21.md), a coefficient normalisation that
+differs from the paper's Eq. 21 by an L-dependent factor; it cancels for simulated data but not for
+imported measured data. Symmetric-NO₂ (`experiment="2dof"`) does not run
+([003](issues/003-2dof-symmetric-path-unwired.md)).
+
+## [v0.0.1] — 2023-03-01
+
+The state of the code at publication of Hegazy et al., *Communications Physics* **6**, 325 (2023).
+Runs only on the original SLAC/LCLS cluster.
 
 ---
+
+# Appendix — full engineering record
+
+Everything below is the detailed record: every file recovered and every line changed, kept for
+review and for porting to another branch.
 
 ## What had to be recovered: `external_artifacts/`
 

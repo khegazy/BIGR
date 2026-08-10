@@ -35,7 +35,7 @@ cap, no wall-clock limit, and no minimum-progress test. Two ways it can fail to 
    `switch_rnd > 5`), which then draws a hardcoded 1500 samples at `:333`.
 
 `density_extraction.run_mcmc` already got a `max_iterations` cap during this work
-(see `CHANGES.md`); the mode search never did.
+(see `CHANGELOG.md`); the mode search never did.
 
 ## Suggested fix
 

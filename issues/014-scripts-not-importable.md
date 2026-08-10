@@ -67,7 +67,7 @@ the coupling entirely.
 `from modules.NO2 import *` re-exported `modules/NO2.py`'s own imports (that module defines no
 `__all__`). Adding an `__all__` there, or reordering, would have broken the script.
 
-Explicit `import argparse, time` were added during this work (see `CHANGES.md`). The underlying
+Explicit `import argparse, time` were added during this work (see `CHANGELOG.md`). The underlying
 fragility remains: several modules rely on `import *` for transitive names. Adding `__all__` to
 `modules/NO2.py` and `modules/plot_functions.py` would make the real dependencies visible — but do it
 together with an audit, since it will surface more cases like this one.

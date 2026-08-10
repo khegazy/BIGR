@@ -9,8 +9,9 @@ Two documents supersede parts of this file and should be read first:
 - **`how_to_run.md`** — the user-facing guide: setup, running, plots, the parameter reference, and
   the HDF5 schemas (including the layout colleagues need for their own measured data). Written for a
   non-programmer; contains only what is needed to run the code.
-- **`CHANGES.md`** — the engineering record: every file recovered and every line changed to get this
-  running off the SLAC cluster. Not needed to run anything.
+- **`CHANGELOG.md`** — the release changelog (Keep a Changelog format), with the full engineering
+  record as an appendix: every file recovered and every line changed to get this running off the
+  SLAC cluster. Not needed to run anything.
 - **`issues/`** — one file per known defect, with severity, exact locations, reproductions and
   suggested fixes. `issues/README.md` indexes them.
 

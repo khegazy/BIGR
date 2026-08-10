@@ -27,8 +27,8 @@ This package approximates the probability distribution |Psi(r,t)|^2 of time depe
 > the repository.
 >
 > Known defects are catalogued one-per-file in [`issues/`](issues/) — start at
-> [`issues/README.md`](issues/README.md). The code changes that were needed to revive this
-> repository are in [`CHANGES.md`](CHANGES.md).
+> [`issues/README.md`](issues/README.md). What changed in each release, and the full record of the
+> changes that were needed to revive this repository, are in [`CHANGELOG.md`](CHANGELOG.md).
 >
 > Before and after changing anything in the forward model, run the physics regression suite:
 > `MPLBACKEND=Agg .venv/bin/python scripts/test_physics.py` (14 tests).
@@ -42,7 +42,7 @@ bash setup.sh          # or: bash setup.sh <experiment_dir>   (default: NO2)
 ```
 This creates the output folders and symlinks, stages the ADMs, and compiles the C++ extension for
 your platform. It is idempotent. (Earlier versions of this README said not to run it, because it
-could not be parsed; it has been rewritten — see [`CHANGES.md`](CHANGES.md).)
+could not be parsed; it has been rewritten — see [`CHANGELOG.md`](CHANGELOG.md).)
 
 **Prerequisites**</br>
 Install with `uv pip install --python .venv/bin/python -r requirements.txt` (or plain
@@ -52,7 +52,7 @@ h5py 3.16.0, emcee 3.1.6, corner 2.3.0.
 
 The original minimum versions are kept below for reference, but the code no longer runs under the
 old numpy idioms it used to depend on (`np.complex`, `np.int`, `np.float` were all removed from
-numpy) — see [`CHANGES.md`](CHANGES.md).
+numpy) — see [`CHANGELOG.md`](CHANGELOG.md).
 - `Python >= 3.9.7`
 - `Numpy >= 1.21.4`
 - `Scipy >= 1.6.2`

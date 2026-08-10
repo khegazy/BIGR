@@ -2,7 +2,7 @@
 
 Issues found while getting the NO₂ analysis running off the original SLAC/LCLS cluster.
 **Many have since been fixed** — the Status line at the top of each file is authoritative, and the
-✅/⚠️/❌ markers in the index below summarise it. `CHANGES.md` records the code changes themselves.
+✅/⚠️/❌ markers in the index below summarise it. `CHANGELOG.md` records the code changes themselves.
 
 Each file is self-contained: what breaks, where, why, how to reproduce, and a suggested fix. Fixed
 issues are kept rather than deleted, because several of the original diagnoses turned out to be

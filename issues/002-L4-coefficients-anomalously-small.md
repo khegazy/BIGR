@@ -203,7 +203,7 @@ the `keep_inds` finding above stand on their own.
 ## What was ruled out
 
 - **Not the `sph_harm` → `sph_harm_y` migration.** All three call sites were verified numerically
-  identical before/after to 5.6e-16 under their exact broadcast shapes (see `CHANGES.md`).
+  identical before/after to 5.6e-16 under their exact broadcast shapes (see `CHANGELOG.md`).
 - **Not a data/model inconsistency.** With the PDF model, `log_likelihood(truth) == 0` exactly and
   all 12 parameter perturbations lower it, so the forward model reproduces its own simulated data.
   The suppression affects data and model equally, which is precisely why it does not show up as a

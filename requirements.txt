@@ -7,7 +7,7 @@
 #
 # These are the versions the analysis was verified with -- see how_to_run.md.
 # They are much newer than the floors quoted in README.md; the API changes that
-# required are recorded in CHANGES.md.
+# required are recorded in CHANGELOG.md.
 
 # --- core numerics -------------------------------------------------------
 numpy==2.2.6

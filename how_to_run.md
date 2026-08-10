@@ -25,9 +25,9 @@ for the physics; read this file to run the software.
 10. [If something goes wrong](#10-if-something-goes-wrong)
 11. [Known problems](#11-known-problems)
 
-> **This file contains only what you need to run the code.** The record of what had to be changed to
-> revive this repository lives separately in [`CHANGES.md`](CHANGES.md), and the catalogue of known
-> defects in [`issues/`](issues/). You need neither to get results.
+> **This file contains only what you need to run the code.** What changed between releases is in
+> [`CHANGELOG.md`](CHANGELOG.md), and the catalogue of known defects in [`issues/`](issues/). You
+> need neither to get results.
 
 ---
 
