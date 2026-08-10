@@ -8,7 +8,7 @@ To run the code, read [`how_to_run.md`](how_to_run.md) — you do not need this 
 you want to know what changed, or why a line looks the way it does. Open defects are catalogued in
 [`issues/`](issues/).
 
-## [Unreleased]
+## [v0.0.2]
 
 Revival release: as committed, `v0.0.1` could not run anywhere except the SLAC/LCLS cluster it was
 written on. It now runs from a fresh clone on macOS/Linux, and the retrieval is verified against
