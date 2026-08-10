@@ -35,7 +35,7 @@ cap, no wall-clock limit, and no minimum-progress test. Two ways it can fail to 
    `switch_rnd > 5`), which then draws a hardcoded 1500 samples at `:333`.
 
 `density_extraction.run_mcmc` already got a `max_iterations` cap during this work
-(`how_to_run.md` §6); the mode search never did.
+(see `CHANGES.md`); the mode search never did.
 
 ## Suggested fix
 
@@ -77,4 +77,5 @@ The last two are hardcoded and should be parameters.
 
 ## Related
 
-- `how_to_run.md` §7 ("Mode search cost") documents the grid scaling for users
+- The grid-scaling table above is the reference for these knobs; the user-facing guide
+  (`how_to_run.md`) deliberately omits them, so this file is the only place they are documented.

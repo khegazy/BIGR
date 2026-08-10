@@ -384,10 +384,15 @@ Your ADMs must cover the same times as your measurement. For a molecule other th
 your own `get_ADMs`, `get_scattering_amplitudes` and geometry functions — copy
 `modules/module_template.py` and follow `modules/NO2.py` as the worked example.
 
-**Two known issues on this path**, both worth reading before you trust the output:
-[issues/019](issues/019-prefactor-convention-differs-from-eq21.md) (a normalisation convention that
-differs from the paper's Eq. 21 and matters for imported data) and
-[issues/013](issues/013-get-adms-molecule-hardcoded.md).
+**One known issue on this path is worth reading before you trust the output:**
+[issues/019](issues/019-prefactor-convention-differs-from-eq21.md) — a coefficient normalisation that
+differs from the paper's Eq. 21 by an L-dependent factor. It cancels for simulated data (the same
+convention is used to generate and to fit) but **not** for data you bring in yourself, so it needs
+resolving before you compare imported coefficients against published values.
+
+Also note [issues/013c](issues/013-get-adms-molecule-hardcoded.md): ADM filenames are parsed by
+character position, so an ADM with L or K ≥ 10 is read incorrectly. Harmless for NO₂, which needs
+only L ≤ 8.
 
 ---
 
@@ -488,4 +493,5 @@ The ones most likely to affect you:
 | [005](issues/005-multiprocessing-broken-on-spawn.md) | `multiprocessing` must be 0 or 1 on macOS and Windows. |
 | [011](issues/011-notebook-remaining-problems.md) | Later notebook cells can draw a **wrong figure with no error** — another reason to stop at cell 9. |
 | [018](issues/018-posterior-prior-dominated-at-low-information.md) | With low-quality data the widths can be set by the prior rather than by your measurement. How to spot it. |
-| [004](issues/004-calc-type-1-and-2-broken.md) | `calc_type: 2` does not work; `calc_type` is ignored when `multiprocessing > 1`. |
+| [004b](issues/004-calc-type-1-and-2-broken.md) | `calc_type: 2` does not work — use 0 (fast) or 1 (slow but correct). |
+| [014](issues/014-scripts-not-importable.md) | `import build_posterior` from a notebook **kills the kernel** — the script parses command-line arguments when imported. Use the notebook's own code, not an import. |

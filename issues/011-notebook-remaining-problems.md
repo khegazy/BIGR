@@ -10,7 +10,7 @@ cell 2 (so original cell *n* is now *n + 6*).
 
 ## What was already fixed
 
-Recorded in `how_to_run.md` §6: the cell-0 `ImportError` (`calc_ensemble_dists`, `calc_dists` do not
+Recorded in `CHANGES.md`: the cell-0 `ImportError` (`calc_ensemble_dists`, `calc_dists` do not
 exist), the removed `IPython.core.display` import, the optional `diffraction_simulation` import, and
 the kernelspec that pinned a nonexistent `emcee_env` kernel.
 

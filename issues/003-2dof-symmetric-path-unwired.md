@@ -84,5 +84,5 @@ looks like it may have been copied from a distance bound. Confirm it is intentio
 
 ## Related
 
-- `how_to_run.md` §4 documents the distinction for users
+- `how_to_run.md` §6 documents the distinction for users
 - [009](009-ensemble-grid-size-parameter-ignored.md) — ensemble cost scaling

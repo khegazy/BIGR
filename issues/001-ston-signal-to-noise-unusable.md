@@ -127,7 +127,7 @@ PY
 ## Workaround in place
 
 `NO2/parameters.py` defaults to `("constant_sigma", 0.163)`, which needs no ADMs and gives a
-well-conditioned posterior. See `how_to_run.md` §8.
+well-conditioned posterior. See `how_to_run.md` §7 (choosing how noisy the data is).
 
 ## Related
 

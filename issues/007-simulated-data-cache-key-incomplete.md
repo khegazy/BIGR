@@ -102,7 +102,7 @@ bypasses simulation entirely.
 
 ## Workaround in place
 
-Documented in `how_to_run.md` §11, and the relevant `parameters.py` comment warns about
+Documented in `how_to_run.md` §5, and the relevant `parameters.py` comment warns about
 `eval_times`/`probe_FWHM` specifically. The manual remedy is:
 
 ```bash

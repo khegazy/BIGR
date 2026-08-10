@@ -298,4 +298,4 @@ either way.
   with someone having noticed accuracy mattered.
 - [002](002-L4-coefficients-anomalously-small.md) — separate issue, but a working scipy cross-check
   would help here too.
-- `how_to_run.md` §7 — the cost table and the fast-parameter rationale.
+- `how_to_run.md` §5 — the cost table and the fast-parameter rationale.

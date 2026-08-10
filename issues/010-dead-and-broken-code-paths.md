@@ -3,10 +3,11 @@
 **Severity** P3 individually (all off the main path), but collectively a trap: none of them fails
 until you enable the feature, and several are reachable from documented parameters.
 **Area** dead code
-**Status** open
+**Status** **partly fixed.** 10a, 10c, 10d and 10f are fixed and verified. 10b is **half** fixed
+(re-checked 2026-08-09: the `NameError` is gone, the `TypeError` is still live). 10e and 10g are
+untouched.
 
-Grouped in one issue because the fix is the same decision each time: **repair or delete**. Nothing
-here has ever run in this checkout.
+Grouped in one issue because the fix is the same decision each time: **repair or delete**.
 
 ## 10a. `calculate_coeffs_ensemble_scipy` — broadcasting bug — ✅ FIXED
 
@@ -29,14 +30,45 @@ be used as a backend at all — it now weight-sums. Both fixes were needed befor
 the cross-check that caught [002](002-L4-coefficients-anomalously-small.md), and it is now
 covered by `scripts/test_physics.py`.
 
-## 10b. `remove_global_offset` — two `NameError`s and a `TypeError`
+## 10b. `remove_global_offset` — ⚠️ **HALF FIXED**, still raises
 
-`:2233`. Reached when `global_offset` is present in the parameter dict.
+`remove_global_offset` (now at `:2314`). Reached when `global_offset` is present in the parameter
+dict. Re-checked 2026-08-09:
 
-| Line | Problem |
-|---|---|
-| `:2239`, `:2242` | `fit_I0(...)` called without `self.` → `NameError` |
-| `:2225` | `self.ensemble_generator(..., N=...)` — the generator takes no `N` keyword → `TypeError` |
+| Line | Problem | Status |
+|---|---|---|
+| `:2334`, `:2337` | `fit_I0(...)` called without `self.` → `NameError` | ✅ **fixed** — both now call `self.fit_I0` |
+| `:2320` | `self.ensemble_generator(..., N=...)` — the generator takes no `N` keyword → `TypeError` | ❌ **still live** |
+
+So the function still raises on first use; only the failure mode moved. Verified directly:
+
+```python
+>>> molecule_ensemble_generator(thetas, N=19)
+TypeError: molecule_ensemble_generator() got an unexpected keyword argument 'N'
+```
+
+`modules/NO2.py:374` is `def molecule_ensemble_generator(thetas):` — one positional argument, no
+`N`. The grid size is the module constant `ENSEMBLE_GRID_N`, so the `N=` argument has nowhere to go.
+
+**Fix.** Drop the keyword — the call becomes identical to the other two call sites (`:630`, `:1000`),
+which already pass only the stripped theta array:
+
+```python
+ensemble = self.ensemble_generator(
+    np.expand_dims(np.array(self.data_params["sim_thetas"])[:-1], 0))
+```
+
+This also removes the last reader of the inert trailing `sim_thetas` element, which would close
+[009](009-ensemble-grid-size-parameter-ignored.md) outright.
+
+**Also here:** a leftover debug print at `:2327`:
+
+```python
+print("AAAA", self.calculate_coeffs(ensemble, weights).shape)
+```
+
+It recomputes the coefficients purely to print a shape — so it roughly doubles the cost of the
+function on top of being noise. Delete it.
 
 See [006](006-measured-data-path-broken.md) for the `fit_I0` family and
 [009](009-ensemble-grid-size-parameter-ignored.md) for the `N=` keyword.

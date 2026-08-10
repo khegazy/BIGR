@@ -58,12 +58,12 @@ scope in that method.
 ## Test
 
 There is no test suite, so add a minimal round-trip guarding this path: write a small
-measured-data HDF5 in the format documented in `how_to_run.md` §10, run with
+measured-data HDF5 in the format documented in `how_to_run.md` §8, run with
 `simulate_data = False` and no `I_scale`, and assert construction succeeds and `self.I` is finite.
 
 ## Related
 
-- `how_to_run.md` §10 — the measured-data HDF5 layout, including the advice to set `I_scale` as a
+- `how_to_run.md` §8 — the measured-data HDF5 layout, including the advice to set `I_scale` as a
   workaround
 - [010](010-dead-and-broken-code-paths.md) — `remove_global_offset` and `simulate_error_data` have
   further problems beyond this

@@ -82,4 +82,4 @@ would itself be expensive — another argument for threads over processes.
 ## Workaround in place
 
 `NO2/parameters.py:95-102` sets `multiprocessing = 0` for both density models, with a comment. See
-`how_to_run.md` §7.
+`how_to_run.md` §5.

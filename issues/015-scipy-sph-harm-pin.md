@@ -22,7 +22,7 @@ sph_harm(m, n, azim, polar)  ==  sph_harm_y(n, m, polar, azim)
 
 Agreement was 1.1e-15 over l = 0…6, confirmed against the analytic Y₁⁰/Y₁¹/Y₂⁰ closed forms and
 re-checked under each call site's real broadcast shapes (5.6e-16). The naive *unswapped* call differs
-by 0.243, so this was a genuine trap. Details in `how_to_run.md` §6.
+by 0.243, so this was a genuine trap. Details in `CHANGES.md`.
 
 ## What still constrains the versions
 
