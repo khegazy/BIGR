@@ -9,11 +9,14 @@ The method is described in `BIGR_paper.pdf` (Hegazy et al., *Communications Phys
 (2023), [doi:10.1038/s42005-023-01420-9](https://doi.org/10.1038/s42005-023-01420-9)). Read the paper
 for the physics; read this file to run the software.
 
-**Contents**
+**Read these four in order — they are the whole job:**
 1. [Setup — do this once](#1-setup--do-this-once)
 2. [Run the analysis](#2-run-the-analysis)
 3. [Make the plots](#3-make-the-plots)
 4. [Check that it worked](#4-check-that-it-worked)
+
+**Then dip into these as you need them:**
+
 5. [Settings you may want to change](#5-settings-you-may-want-to-change)
 6. [Symmetric vs. asymmetric NO₂](#6-symmetric-vs-asymmetric-no2)
 7. [Choosing how noisy the data is](#7-choosing-how-noisy-the-data-is)
@@ -22,8 +25,9 @@ for the physics; read this file to run the software.
 10. [If something goes wrong](#10-if-something-goes-wrong)
 11. [Known problems](#11-known-problems)
 
-> Looking for the list of code changes that were needed to revive this repository? That is in
-> [`CHANGES.md`](CHANGES.md). You do not need it to run anything.
+> **This file contains only what you need to run the code.** The record of what had to be changed to
+> revive this repository lives separately in [`CHANGES.md`](CHANGES.md), and the catalogue of known
+> defects in [`issues/`](issues/). You need neither to get results.
 
 ---
 
@@ -63,10 +67,9 @@ machine. It is safe to run more than once.
 name a file ending in `c_calc_extensions.so`. If instead you see `WARNING: the C++ build failed`,
 see [§10](#10-if-something-goes-wrong).
 
-> The compiled `.so` is not stored in the repository on purpose — it is machine-specific, and the
-> version that used to be committed was a Linux binary that could not load on a Mac. Likewise the
-> staged ADM folder is rebuilt rather than stored, because it is only a rearrangement of data already
-> in the repository. This is why Step 2 is not optional.
+> Two things this step produces are deliberately not stored in the repository, which is why you
+> cannot skip it: the compiled library (it only works on the machine that built it) and the arranged
+> ADM folder (it is just a rearrangement of data already here).
 
 ### Step 3 — check that the physics is intact
 
@@ -236,10 +239,10 @@ What `scripts/analyse_run.py` reports, and what to want:
 Everything lives in **`NO2/parameters.py`**. Open it in any text editor and change the values in the
 dictionary near the top.
 
-> **One trap worth knowing.** `get_parameters()` sets `multiprocessing`, `Nwalkers` and `run_limit`
-> near the top of the dictionary and then **overwrites all three** further down, in the
-> `if density_model == …` block (`parameters.py:95-102`). Editing the first copy does nothing. Edit
-> the one inside the block — for the default `"PDF"` model that is the `else` branch.
+> **One trap worth knowing.** Three settings — `multiprocessing`, `Nwalkers` and `run_limit` — appear
+> **twice** in the file. The second copy, further down, wins. So if you change one of those three near
+> the top and nothing happens, scroll down and change the second copy instead. (Search the file for
+> the setting's name; you will find both.) Every other setting appears only once.
 
 The settings most people want:
 
@@ -266,9 +269,9 @@ accurate at the same cost, because the quantity being integrated oscillates. And
 must be 0 or 1 on macOS and Windows — the parallel path cannot be started there
 ([issues/005](issues/005-multiprocessing-broken-on-spawn.md)).
 
-**If you change what the simulated data is** — `sim_thetas`, `fit_bases`, `eval_times`,
-`ENSEMBLE_GRID_N` — the cached simulated data is now automatically detected as out of date and
-regenerated. If you ever suspect a stale cache anyway, delete `output/saved_simulations/`.
+**Simulated data is cached and reused.** If you change something that affects it — `sim_thetas`,
+`fit_bases`, `eval_times`, `ENSEMBLE_GRID_N` — the cache notices and rebuilds itself. If you ever
+suspect it has not, delete the folder `output/saved_simulations/` and run again.
 
 ---
 
@@ -288,13 +291,12 @@ molecule you mean to study, and this repository contains two different NO₂ geo
 | Works today? | **No** — see below | **Yes** |
 
 The rule: **if both bonds are the same length, there is one bond unknown; if they differ, each bond
-gets its own.** `get_parameters()` already links these correctly — `molecule` picks the geometry file
-and `experiment` picks the list of unknowns — so if you change one, change the other.
+gets its own.** `molecule` chooses the geometry and `experiment` chooses how many unknowns to solve
+for, so **the two must always be changed together.**
 
-**The symmetric (`"2dof"`) path does not currently work.** The function that builds a symmetric
-geometry exists but nothing calls it, so `experiment="2dof"` combines symmetric assumptions with
-asymmetric geometry generation and fails with an `IndexError`.
-[issues/003](issues/003-2dof-symmetric-path-unwired.md) records exactly what to add.
+**The symmetric option does not currently work.** Setting `experiment` to `"2dof"` stops with an
+`IndexError`: the code that would build a symmetric geometry was written but never connected up.
+[issues/003](issues/003-2dof-symmetric-path-unwired.md) says what to add if you need it.
 
 The shipped configuration is the **asymmetric** case, which is also the paper's headline simulated
 result (Table 1: ⟨NO⁽¹⁾⟩ = 1.3500 Å, ⟨NO⁽²⁾⟩ = 1.0500 Å, ∠ONO = 2.34 rad).
